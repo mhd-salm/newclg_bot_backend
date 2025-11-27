@@ -39,7 +39,7 @@ def load_pdfs(pdf_files):
             print(f"Error loading {file}:", e)
 
 
-pdf_list = ["college.pdf", "bb.pdf","SHIFT 1 UG & PG.pdf"]
+pdf_list = ["college.pdf"]
 load_pdfs(pdf_list)
 
 
@@ -122,3 +122,4 @@ Rules:
 
 if __name__ == "__main__":
     app.run(port=4000)
+
