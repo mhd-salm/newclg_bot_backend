@@ -8,8 +8,7 @@ import google.generativeai as genai
 from datetime import datetime
 
 # Load environment variables
-load_dotenv()
-
+load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 if not GEMINI_API_KEY:
