@@ -6,9 +6,11 @@ import PyPDF2
 from dotenv import load_dotenv
 import google.generativeai as genai
 from datetime import datetime
+import re
 
 # Load environment variables
-load_dotenv()
+load_dotenv()
+
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 if not GEMINI_API_KEY:
@@ -63,13 +65,35 @@ def chat():
 
         sessions[session_id].append({"role": "user", "content": message})
 
-        # ---- Date/Time Detection ----
-        if any(k in message.lower() for k in ["date", "today", "time", "day"]):
+        # ---- Date/Time Detection (strict) ----
+        # Previously this matched any occurrence of words like "day"
+        # and caused the server to reply with the current date/time even
+        # when the user asked unrelated questions (e.g. "today timetable").
+        #
+        # New logic: only treat the message as a direct date/time query
+        # when it explicitly asks for date/time (short queries like
+        # "today", "what is the date", "what time is it", "current time",
+        # etc.). We explicitly avoid answering date/time when the message
+        # includes timetable/day-order related keywords so those intents
+        # can be handled elsewhere.
+        lower_msg = message.lower().strip()
+
+        # Detect explicit date/time questions using simple regexes and
+        # exact short phrases.
+        is_explicit_date = bool(re.search(r"\b(what(?:'s| is)?\s+the\s+date|what(?:'s| is)?\s+today|date\s+today|today's\s+date|\bdate\b)\b", lower_msg))
+        is_explicit_time = bool(re.search(r"\b(what(?:'s| is)?\s+the\s+time|what\s+time|current\s+time|time\s+now|what(?:'s| is)?\s+the\s+time\b)\b", lower_msg))
+        is_short_direct = lower_msg in ("today", "time", "date", "what's the date", "what is today", "what is the date")
+
+        # Keywords that indicate the user is asking about timetables/day-orders
+        # — in those cases we should NOT short-circuit and return the date/time.
+        timetable_keywords = ["timetable", "time table", "schedule", "class", "classes", "period", "day order", "dayorder", "day-order"]
+        mentions_timetable = any(k in lower_msg for k in timetable_keywords)
+
+        if (is_explicit_date or is_explicit_time or is_short_direct) and not mentions_timetable:
             now = datetime.now()
             reply = (
                 f"Today's date is {now.strftime('%B %d, %Y')}, "
-                f"and the current time is {now.strftime('%I:%M %p')}."
-            )
+                f"and the current time is {now.strftime('%I:%M %p')}.")
             sessions[session_id].append({"role": "assistant", "content": reply})
             return jsonify({"reply": reply})
 
@@ -123,7 +147,7 @@ if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
+    
 
 
 
