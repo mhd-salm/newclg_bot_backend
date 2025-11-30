@@ -43,7 +43,7 @@ def load_pdfs(pdf_files):
         except Exception as e:
             print(f"Error loading {file}:", e)
 
-pdf_list = ["college.pdf", "shift1.pdf","shift2.pdf","DailyTT.pdf"]
+pdf_list = ["college.pdf", "shift1.pdf","shift2.pdf","DailyTT.pdf","timetable(ai).pdf"]
 load_pdfs(pdf_list)
 
 # ---------------------- OPTIONAL WEB SEARCH ----------------------
@@ -88,6 +88,59 @@ def chat():
         # — in those cases we should NOT short-circuit and return the date/time.
         timetable_keywords = ["timetable", "time table", "schedule", "class", "classes", "period", "day order", "dayorder", "day-order"]
         mentions_timetable = any(k in lower_msg for k in timetable_keywords)
+
+        # --- Day-order quick handler (small addition) ---
+        dayorder_triggers = ["day order", "dayorder", "day-order", "what's the day order", "what is the day order", "today's day order", "tomorrow's day order", "day order for"]
+        mentions_dayorder = any(t in lower_msg for t in dayorder_triggers)
+
+        if mentions_dayorder:
+            # helper to get target date
+            def get_target_date_from_text(s):
+                now = datetime.now()
+                if "day after" in s:
+                    return datetime.fromordinal(now.toordinal() + 2)
+                if "tomorrow" in s:
+                    return datetime.fromordinal(now.toordinal() + 1)
+                # weekday names
+                week_map = {"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3, "friday": 4, "saturday": 5, "sunday": 6}
+                for name, idx in week_map.items():
+                    if name in s:
+                        d = datetime.now()
+                        while d.weekday() != idx:
+                            d = datetime.fromordinal(d.toordinal() + 1)
+                        return d
+                return datetime.now()
+
+            # explicit number
+            m = re.search(r"day\s*order\s*(\d)", lower_msg)
+            if m:
+                try:
+                    n = int(m.group(1))
+                    if 1 <= n <= 6:
+                        reply = f"Day Order {n}."
+                        sessions[session_id].append({"role": "assistant", "content": reply})
+                        return jsonify({"reply": reply})
+                except:
+                    pass
+
+            target = get_target_date_from_text(lower_msg)
+            # Monday => 1, Tuesday=>2, ..., Saturday=>6, Sunday=>holiday (None)
+            wd = target.weekday()  # Monday=0 .. Sunday=6
+            if wd == 6:
+                reply = "It is Sunday. There is no day order on Sunday."
+            else:
+                day_order = wd + 1
+                if "tomorrow" in lower_msg:
+                    reply = f"Tomorrow's day order is Day Order {day_order}."
+                elif "day after" in lower_msg:
+                    reply = f"The day after tomorrow is Day Order {day_order}."
+                elif "today" in lower_msg or lower_msg.strip() in ("what's the day order", "what is the day order", "today's day order"):
+                    reply = f"Today's day order is Day Order {day_order}."
+                else:
+                    reply = f"The day order for that day is Day Order {day_order}."
+
+            sessions[session_id].append({"role": "assistant", "content": reply})
+            return jsonify({"reply": reply})
 
         if (is_explicit_date or is_explicit_time or is_short_direct) and not mentions_timetable:
             now = datetime.now()
@@ -148,6 +201,5 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
     
-
 
 
