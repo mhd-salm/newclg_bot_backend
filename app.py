@@ -44,7 +44,7 @@ def load_pdfs(pdf_files):
         except Exception as e:
             print(f"Error loading {file}:", e)
 
-pdf_list = ["college.pdf", "shift1.pdf", "shift2.pdf", "DailyTT.pdf", "timetable(ai).pdf"]
+pdf_list = ["college.pdf", "shift1.pdf", "shift2.pdf",  "timetable(ai).pdf"]
 load_pdfs(pdf_list)
 
 # ---------------------- OPTIONAL WEB SEARCH ----------------------
@@ -230,5 +230,6 @@ if __name__ == "__main__":
     #app.run(port=4000)
 
     
+
 
 
