@@ -44,7 +44,7 @@ def load_pdfs(pdf_files):
         except Exception as e:
             print(f"Error loading {file}:", e)
 
-pdf_list = ["college.pdf", "shift1.pdf", "shift2.pdf",  "timetable(ai).pdf"]
+pdf_list = ["college.pdf", "shift1.pdf", "shift2.pdf",  "rr.pdf"]
 load_pdfs(pdf_list)
 
 # ---------------------- OPTIONAL WEB SEARCH ----------------------
@@ -103,6 +103,43 @@ def chat():
 
         mentions_timetable = any(k in lower_msg for k in timetable_keywords)
 
+
+        # Detect timetable request for today / tomorrow
+        if mentions_timetable:
+            today = datetime.now()
+
+            if "today" in lower_msg:
+                target = today
+            elif "tomorrow" in lower_msg:
+                target = datetime.fromordinal(today.toordinal() + 1)
+            elif "day after" in lower_msg:
+                target = datetime.fromordinal(today.toordinal() + 2)
+            else:
+                target = today  # default fallback
+
+            wd = target.weekday()  # Monday = 0 ... Sunday = 6
+
+            if wd == 6:
+                reply = "It is Sunday. There is no timetable on Sunday."
+                sessions[session_id].append({"role": "assistant", "content": reply})
+                return jsonify({"reply": reply})
+
+            day_order = wd + 1  # Monday = Day Order 1
+
+            # Force Gemini to extract timetable for this Day Order
+            extra_instruction = f"""
+        The user is asking for the timetable for **Day Order {day_order}**.
+        Extract ONLY the III B.Sc AI timetable from the PDF.
+        """
+
+            # Patch prompt later below
+        else:
+            extra_instruction = ""
+
+
+
+
+
         if (is_explicit_date or is_explicit_time or short_direct) and not mentions_timetable:
             now = datetime.now()
             reply = (
@@ -116,6 +153,12 @@ def chat():
         # DAY ORDER DETECTION
         # ------------------------------------------------------
 
+# ------------------------------------------------------
+# DAY ORDER DETECTION
+# ------------------------------------------------------
+
+        day_order_requested = None   # <-- FIX 1: define it BEFORE using it
+
         dayorder_triggers = [
             "day order", "dayorder", "day-order",
             "what's the day order", "what is the day order",
@@ -125,58 +168,37 @@ def chat():
 
         if any(t in lower_msg for t in dayorder_triggers):
 
-            def get_target_date_from_text(s):
-                now = datetime.now()
-                if "day after" in s:
-                    return datetime.fromordinal(now.toordinal() + 2)
-                if "tomorrow" in s:
-                    return datetime.fromordinal(now.toordinal() + 1)
-
-                week_map = {
-                    "monday": 0, "tuesday": 1, "wednesday": 2,
-                    "thursday": 3, "friday": 4, "saturday": 5, "sunday": 6
-                }
-
-                for name, idx in week_map.items():
-                    if name in s:
-                        d = datetime.now()
-                        while d.weekday() != idx:
-                            d = datetime.fromordinal(d.toordinal() + 1)
-                        return d
-
-                return now
-
+            # Detect if user said “day order 2”
             m = re.search(r"day\s*order\s*(\d)", lower_msg)
             if m:
                 try:
                     n = int(m.group(1))
                     if 1 <= n <= 6:
-                        reply = f"Day Order {n}."
-                        sessions[session_id].append({"role": "assistant", "content": reply})
-                        return jsonify({"reply": reply})
+                        day_order_requested = n
                 except:
                     pass
 
-            target = get_target_date_from_text(lower_msg)
+            # Detect today / tomorrow from text
+            
             wd = target.weekday()
 
             if wd == 6:
-                reply = "It is Sunday. There is no day order on Sunday."
+                detected_dayorder_reply = "It is Sunday. There is no day order on Sunday."
             else:
                 day_order = wd + 1
                 if "tomorrow" in lower_msg:
-                    reply = f"Tomorrow's day order is Day Order {day_order}."
+                    detected_dayorder_reply = f"Tomorrow's day order is Day Order {day_order}."
                 elif "day after" in lower_msg:
-                    reply = f"The day after tomorrow is Day Order {day_order}."
+                    detected_dayorder_reply = f"The day after tomorrow is Day Order {day_order}."
                 elif "today" in lower_msg:
-                    reply = f"Today's day order is Day Order {day_order}."
+                    detected_dayorder_reply = f"Today's day order is Day Order {day_order}."
                 else:
-                    reply = f"The day order for that day is Day Order {day_order}."
+                    detected_dayorder_reply = f"The day order for that day is Day Order {day_order}."
 
-            sessions[session_id].append({"role": "assistant", "content": reply})
-            return jsonify({"reply": reply})
+            # ❌ Do NOT return — FIXED
+            sessions[session_id].append({"role": "assistant", "content": detected_dayorder_reply})
 
-        # ------------------------------------------------------
+        # ------------------------------------------------------                                                                            -
         # WEB SEARCH TRIGGER
         # ------------------------------------------------------
         use_web = any(word in lower_msg for word in ["score", "weather", "news", "who is", "live", "update"])
@@ -189,9 +211,12 @@ def chat():
         prompt = f"""
 You are CampusGuide AI, a college information assistant.
 
+{extra_instruction}
+
 College PDF Data:
 -----------------
 {college_data}
+
 
 Web Search Results:
 -------------------
