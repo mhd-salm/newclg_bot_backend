@@ -274,5 +274,6 @@ def reload_pdfs():
 
 # --------------- RUN -----------------
 if __name__ == "__main__":
-    #app.run(host="0.0.0.0", port=APP_PORT)
-    app.run(port=4000)
+    app.run(host="0.0.0.0", port=APP_PORT)
+   # app.run(port=4000)
+
