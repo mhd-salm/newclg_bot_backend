@@ -10,206 +10,273 @@ from datetime import datetime, timedelta
 import re
 import logging
 
-# ------------------- CONFIG -------------------
+# --------------- CONFIG -----------------
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
 if not GEMINI_API_KEY:
-    raise ValueError("❌ ERROR: GEMINI_API_KEY missing from .env")
+    raise ValueError("GEMINI_API_KEY not found. Check your .env file.")
 
 genai.configure(api_key=GEMINI_API_KEY)
 
-APP_PORT = 8080
-MAX_HISTORY = 5
-PDF_FOLDER = "pdfs"
-
+APP_PORT = int(os.environ.get("PORT", 4000))
+MAX_HISTORY = 20   # keep last N messages when sending to LLM
 PDF_LIST = ["college.pdf", "shift1.pdf", "shift2.pdf", "rr.pdf"]
+ALLOW_WEB_SEARCH = False  # change to True if you implement search_web()
 
-# ------------------- FLASK -------------------
+# --------------- FLASK APP -----------------
 app = Flask(__name__)
 CORS(app)
 
-# ------------------- STORAGE -------------------
-sessions = {}
-college_data = ""
+# --------------- STORAGE -----------------
+college_data = ""      # concatenated text from PDFs
+sessions = {}          # in-memory session map {session_id: [ {role, content}, ... ]}
 
-# ------------------- LOGGING -------------------
+# --------------- LOGGING -----------------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("CampusGuide")
 
-
-# ------------------- LOAD PDFs -------------------
-def load_pdfs():
+# --------------- PDF LOADING -----------------
+def load_pdfs(pdf_files):
+    """
+    Loads text from a list of pdf filenames into the global `college_data` string.
+    Skips files that can't be read and continues.
+    """
     global college_data
     college_data = ""
-
-    for file in PDF_LIST:
-        full_path = os.path.join(PDF_FOLDER, file)
-
-        if not os.path.isfile(full_path):
-            logger.warning("PDF missing: %s", full_path)
+    for file in pdf_files:
+        if not os.path.isfile(file):
+            logger.warning("PDF not found: %s", file)
             continue
-
         try:
-            with open(full_path, "rb") as f:
+            with open(file, "rb") as f:
                 reader = PyPDF2.PdfReader(f)
-                for page in reader.pages:
-                    text = page.extract_text()
-                    if text:
-                        college_data += text + "\n\n"
-
-            logger.info("Loaded PDF: %s", full_path)
-
+                for i, page in enumerate(reader.pages):
+                    try:
+                        ptext = page.extract_text()
+                        if ptext:
+                            college_data += ptext.strip() + "\n\n"
+                    except Exception as e_page:
+                        logger.debug("Could not read page %d of %s: %s", i, file, e_page)
+            logger.info("%s loaded successfully", file)
         except Exception as e:
-            logger.error("Error loading %s: %s", full_path, e)
-
+            logger.warning("Error loading %s: %s", file, e)
+    # small normalization
     college_data = re.sub(r"\n{3,}", "\n\n", college_data).strip()
 
+# load at startup
+load_pdfs(PDF_LIST)
 
-load_pdfs()
+# --------------- HELPERS -----------------
+def compact_history(session_msgs, limit=MAX_HISTORY):
+    """Return last `limit` entries as JSON string for prompt (keeps order)."""
+    return json.dumps(session_msgs[-limit:], ensure_ascii=False)
 
-
-# ---------------- TIMETABLE EXTRACTOR ----------------
-def extract_timetable(day_order: int):
-    if not college_data:
-        return None
-
-    pattern = rf"DAY\s*ORDER\s*{day_order}(.*?)(DAY\s*ORDER\s*[1-6]|$)"
-    match = re.search(pattern, college_data, re.IGNORECASE | re.DOTALL)
-
-    if not match:
-        return None
-
-    text = match.group(1).strip()
-    return re.sub(r"\n{2,}", "\n", text)
-
-
-# ------------------- HELPERS -------------------
-def parse_date(lower_msg: str, now: datetime):
-    if "day after" in lower_msg or "day after tomorrow" in lower_msg:
-        return now + timedelta(days=2)
-    if "tomorrow" in lower_msg:
-        return now + timedelta(days=1)
-    return now
-
-
-def day_order_from_date(dt: datetime):
-    weekday = dt.weekday()
+def get_day_order_for_date(dt: datetime):
+    """
+    Return day order number (1..6) for a given date.
+    Returns None for Sunday.
+    Monday -> 1 ... Saturday -> 6
+    """
+    weekday = dt.weekday()  # Monday=0 ... Sunday=6
     if weekday == 6:
         return None
     return weekday + 1
 
+def parse_requested_target_date(lower_msg: str, now: datetime):
+    """
+    Determine target date from message keywords (today, tomorrow, day after).
+    Returns a datetime object.
+    """
+    if "day after" in lower_msg or "day after tomorrow" in lower_msg:
+        return now + timedelta(days=2)
+    if "tomorrow" in lower_msg:
+        return now + timedelta(days=1)
+    # Default: today
+    return now
 
-def trim_history(session_msgs):
-    return json.dumps(session_msgs[-MAX_HISTORY:], ensure_ascii=False)
+def should_use_web(lower_msg: str):
+    """Simple heuristic for web search trigger - can be tuned."""
+    if not ALLOW_WEB_SEARCH:
+        return False
+    triggers = ["score", "weather", "news", "who is", "live", "update"]
+    return any(t in lower_msg for t in triggers)
 
+def search_web(query: str):
+    """Placeholder: return string. Implement if you have a search backend."""
+    return "Web search disabled in this deployment."
 
-def build_prompt(user_msg, pdf_text, history):
-    return f"""
-You are **Campus Guide AI** — always helpful, short, and accurate.
+def build_prompt(extra_instruction: str, doc_text: str, history: str, user_message: str):
+    """
+    Build a compact, predictable prompt for the model.
+    - doc_text: college_data (may be large)
+    - history: compact_history(...) JSON
+    - extra_instruction: specific directive (could be empty)
+    """
+    # Keep the prompt compact: include only essential rules and last N messages.
+    prompt = f"""
+You are CampusGuide AI, a helpful and factual college information assistant.
 
-Rules:
-- ONLY use PDF data for timetable/day-order/college academic questions.
-- If question is not about college — reply normally.
-- Keep answers clear and short.
+{extra_instruction}
 
-PDF Data (only included when required):
---------------------------------------
-{pdf_text}
+College PDF Data (ONLY use this for college-specific questions):
+-----------------
+{doc_text}
 
-Chat History:
+Conversation History (recent):
 {history}
 
 User Message:
-{user_msg}
-""".strip()
+{user_message}
 
+Rules:
+- If the user asks about the college (timetable, classes, rooms, policies) use ONLY the PDF data.
+- For general questions, answer normally.
+- Keep answers short, actionable and friendly.
+- If you already know the direct answer (date/time/day-order), answer directly and do not call external search.
+"""
+    return prompt.strip()
 
-# ------------------- MAIN CHAT ENDPOINT -------------------
+# --------------- ROUTES -----------------
 @app.route("/chat", methods=["POST"])
 def chat():
     try:
         data = request.get_json(force=True)
-        message = data.get("message", "")
+        message = data.get("message", "") or ""
         session_id = data.get("sessionId", "default")
 
+        # init session if needed
         if session_id not in sessions:
             sessions[session_id] = []
 
+        # record user msg
         sessions[session_id].append({"role": "user", "content": message})
 
-        lower = message.lower().strip()
+        lower_msg = message.lower().strip()
         now = datetime.now()
 
-        # DATE ONLY
-        if lower in {"what is the date", "what's the date", "today date", "today's date",
-                     "date today", "what is today"} and "timetable" not in lower:
-            reply = f"📅 Today's date is {now.strftime('%B %d, %Y')}."
+        # default safety inits
+        extra_instruction = ""
+        target = now  # default target date
+
+        # short explicit date/time queries
+        explicit_date_phrases = {
+            "what is the date", "what's the date", "what is today",
+            "today date", "today's date", "date today", "give me the date",
+            "tell me the date", "date", "today"
+        }
+        explicit_time_phrases = {
+            "what is the time", "what's the time", "current time",
+            "time now", "tell me the time", "time"
+        }
+
+        is_explicit_date = lower_msg in explicit_date_phrases
+        is_explicit_time = lower_msg in explicit_time_phrases
+        short_direct = lower_msg in ("date", "time", "today")
+
+        # TIMETABLE / DAY ORDER TRIGGERS
+        timetable_keywords = ["timetable", "time table", "schedule", "class", "period", "day order", "dayorder", "day-order"]
+        mentions_timetable = any(k in lower_msg for k in timetable_keywords)
+
+        # If user explicitly asks for date/time and not timetable => answer directly
+        if (is_explicit_date or is_explicit_time or short_direct) and not mentions_timetable:
+            reply = f"Today's date is {now.strftime('%B %d, %Y')}, and the current time is {now.strftime('%I:%M %p')}."
             sessions[session_id].append({"role": "assistant", "content": reply})
             return jsonify({"reply": reply})
 
-        # TIME ONLY
-        if lower in {"what is the time", "time now", "current time", "tell me the time"} and "timetable" not in lower:
-            reply = f"⏰ Current time: {now.strftime('%I:%M %p')}."
-            sessions[session_id].append({"role": "assistant", "content": reply})
-            return jsonify({"reply": reply})
-
-        # TIMETABLE
-        timetable_keywords = ["timetable", "time table", "schedule", "class", "period"]
-        if any(k in lower for k in timetable_keywords) or "day order" in lower:
-            target_date = parse_date(lower, now)
-            day_order = day_order_from_date(target_date)
-
+        # If they asked about timetable/day order, compute target date first
+        if mentions_timetable or "day order" in lower_msg or "dayorder" in lower_msg:
+            target = parse_requested_target_date(lower_msg, now)
+            # day order logic
+            day_order = get_day_order_for_date(target)
             if day_order is None:
-                reply = "📌 It is Sunday — no classes today."
+                reply = "It is Sunday. There is no timetable or day order on Sunday."
                 sessions[session_id].append({"role": "assistant", "content": reply})
                 return jsonify({"reply": reply})
 
-            table = extract_timetable(day_order)
-            pretty = target_date.strftime("%A, %B %d, %Y")
+            # If they asked for day order specifically and not timetable content, return simple text
+            dayorder_triggers = ["day order", "what's the day order", "what is the day order", "today's day order", "tomorrow's day order", "day order for"]
+            if any(t in lower_msg for t in dayorder_triggers) and "timetable" not in lower_msg and "schedule" not in lower_msg:
+                # craft a specific reply
+                pretty_date = target.strftime("%A, %B %d, %Y")
+                # normalize phrasing depending on keywords
+                if "tomorrow" in lower_msg:
+                    reply = f"Tomorrow ({pretty_date}) is Day Order {day_order}."
+                elif "day after" in lower_msg:
+                    reply = f"The day after tomorrow ({pretty_date}) is Day Order {day_order}."
+                elif "day order" in lower_msg and re.search(r"day\s*order\s*\d", lower_msg):
+                    # user asked for or included a number, echo detected or validate
+                    reply = f"The day order for {pretty_date} is Day Order {day_order}."
+                else:
+                    reply = f"Today's Day Order is Day Order {day_order}."
+                sessions[session_id].append({"role": "assistant", "content": reply})
+                return jsonify({"reply": reply})
 
-            if table:
-                reply = f"📅 **Timetable for {pretty} (Day Order {day_order})**\n\n{table}"
-            else:
-                reply = f"Day Order {day_order} found, but timetable section missing in PDF."
+            # If they ask for timetable specifically -> set an instruction for the LLM
+            if mentions_timetable or "timetable" in lower_msg or "schedule" in lower_msg:
+                extra_instruction = f"The user is asking for the timetable for Day Order {day_order}. Extract ONLY the III B.Sc AI timetable from the provided PDF text. Provide the timetable in a short, readable format."
 
-            sessions[session_id].append({"role": "assistant", "content": reply})
-            return jsonify({"reply": reply})
+        # If not returned yet, we'll build prompt and call Gemini
+        # Optionally run web search (disabled by default)
+        web_info = search_web(message) if should_use_web(lower_msg) else ""
 
-        # NORMAL CHAT
-        history_json = trim_history(sessions[session_id])
-        needs_pdf = any(k in lower for k in timetable_keywords) or "day order" in lower
-        pdf_text = college_data if needs_pdf else "Not required."
+        # Build compact history (last N messages)
+        history_json = compact_history(sessions[session_id], limit=MAX_HISTORY)
 
-        prompt = build_prompt(message, pdf_text, history_json)
+        # Build a trimmed doc_text to avoid excessively large prompt:
+        # If college_data is huge, you might want to only include a relevant slice or index. For now we include it.
+        doc_text = college_data if college_data else "No college PDFs loaded."
 
-        model = genai.GenerativeModel("gemini-2.0-flash-lite")
+        prompt = build_prompt(extra_instruction=extra_instruction, doc_text=doc_text, history=history_json, user_message=message)
+        logger.debug("Prompt length: %d", len(prompt))
+
+        # Call the Gemini model
+        model = genai.GenerativeModel("models/gemini-2.5-flash")
         response = model.generate_content(prompt)
+        # The SDK may return different shapes; here we try to extract text robustly
+        reply = None
+        try:
+            # Known pattern used earlier
+            reply = getattr(response, "text", None) or getattr(response, "content", None) or str(response)
+        except Exception:
+            reply = str(response)
 
-        reply = getattr(response, "text", None) or str(response)
+        # fallback if still empty
+        if not reply:
+            reply = "Sorry — I couldn't generate a response. Try rephrasing your question."
 
+        # record assistant reply and return
         sessions[session_id].append({"role": "assistant", "content": reply})
+        # trim session history to keep memory bounded
+        if len(sessions[session_id]) > MAX_HISTORY * 2:
+            sessions[session_id] = sessions[session_id][-MAX_HISTORY * 2 :]
+
         return jsonify({"reply": reply})
 
     except Exception as e:
-        logger.exception("SERVER ERROR")
+        logger.exception("Backend Error")
         return jsonify({"reply": f"⚠ Server error: {e}"}), 500
 
-
-# ------------------- RELOAD PDFs -------------------
+# --------------- ADMIN ROUTES (optional) -----------------
 @app.route("/reload_pdfs", methods=["POST"])
-def reload_pdf_route():
+def reload_pdfs():
+    """
+    Admin endpoint to reload PDFs at runtime without restarting the server.
+    POST body: {"pdf_list": ["a.pdf","b.pdf"]}  (optional)
+    """
     try:
-        load_pdfs()
-        return jsonify({"ok": True})
+        data = request.get_json(force=True) or {}
+        new_list = data.get("pdf_list", PDF_LIST)
+        load_pdfs(new_list)
+        return jsonify({"ok": True, "loaded_files_count": len(new_list)})
     except Exception as e:
+        logger.exception("Error reloading PDFs")
         return jsonify({"ok": False, "error": str(e)}), 500
 
-
-# ------------------- RUN -------------------
+# --------------- RUN -----------------
 if __name__ == "__main__":
-    # Render / Railway / Heroku etc. will provide PORT
-    port = int(os.environ.get("PORT", APP_PORT))
-
-    # Bind to 0.0.0.0 so works inside Docker/Render
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+   # app.run(port=4000)
+
+
+
