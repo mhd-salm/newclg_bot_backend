@@ -230,7 +230,7 @@ def chat():
         logger.debug("Prompt length: %d", len(prompt))
 
         # Call the Gemini model
-        model = genai.GenerativeModel("models/gemini-2.0-flash")
+        model = genai.GenerativeModel("models/gemini-2.5-flash")
         response = model.generate_content(prompt)
         # The SDK may return different shapes; here we try to extract text robustly
         reply = None
@@ -277,5 +277,6 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
    # app.run(port=4000)
+
 
 
