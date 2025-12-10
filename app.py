@@ -19,7 +19,7 @@ if not GEMINI_API_KEY:
 genai.configure(api_key=GEMINI_API_KEY)
 
 APP_PORT = int(os.environ.get("PORT", 4000))
-MAX_HISTORY = 20   # keep last N messages when sending to LLM
+MAX_HISTORY = 2   # keep last N messages when sending to LLM
 PDF_LIST = ["college.pdf", "shift1.pdf", "shift2.pdf", "rr.pdf"]
 ALLOW_WEB_SEARCH = False  # change to True if you implement search_web()
 
@@ -277,6 +277,7 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
    # app.run(port=4000)
+
 
 
 
