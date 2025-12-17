@@ -1,0 +1,318 @@
+B.Sc AI DEPARTMENT – COMPLETE TIMETABLE + EXPLANATION GUIDE (FOR CHATBOT)  
+  
+ 
+  
+date day day order 
+01-12-2025 Monday 1 
+02-12-2025 Tuesday 2 
+03-12-2025 Wednesday 3 
+04-12-2025 Thursday 4 
+05-12-2025 Friday 5 
+06-12-2025 Saturday Holiday 
+07-12-2025 Sunday Holiday 
+08-12-2025 Monday 6 
+09-12-2025 Tuesday 1 
+10-12-2025 Wednesday 2 
+11-12-2025 Thursday 3 
+12-12-2025 Friday 4 
+13-12-2025 Saturday 5 
+14-12-2025 Sunday Holiday 
+15-12-2025 Monday 6 
+16-12-2025 Tuesday 1 
+17-12-2025 Wednesday 2 
+18-12-2025 Thursday 3 
+19-12-2025 Friday 4 
+20-12-2025 Saturday Holiday 
+21-12-2025 Sunday Holiday 
+22-12-2025 Monday 5 
+23-12-2025 Tuesday 6 
+24-12-2025 Wednesday 1 
+25-12-2025 Thursday Holiday 
+26-12-2025 Friday Holiday 
+27-12-2025 Saturday Holiday 
+28-12-2025 Sunday Holiday 
+29-12-2025 Monday Holiday 
+30-12-2025 Tuesday Holiday 
+31-12-2025 Wednesday Holiday 
+01-01-2026 Thursday Holiday 
+02-01-2026 Friday 2 
+03-01-2026 Saturday 3 
+04-01-2026 Sunday Holiday 
+05-01-2026 Monday 4 
+06-01-2026 Tuesday 5 
+ 
+07-01-2026 Wednesday 6 
+08-01-2026 Thursday 1 
+09-01-2026 Friday 2 
+10-01-2026 Saturday 3 
+11-01-2026 Sunday Holiday 
+12-01-2026 Monday 4 
+13-01-2026 Tuesday 5 
+14-01-2026 Wednesday Holiday 
+15-01-2026 Thursday Holiday 
+16-01-2026 Friday Holiday 
+17-01-2026 Saturday Holiday 
+18-01-2026 Sunday Holiday 
+19-01-2026 Monday 6 
+20-01-2026 Tuesday 1 
+21-01-2026 Wednesday 2 
+22-01-2026 Thursday 3 
+23-01-2026 Friday 4 
+24-01-2026 Saturday 5 
+25-01-2026 Sunday Holiday 
+26-01-2026 Monday Holiday 
+27-01-2026 Tuesday 6 
+28-01-2026 Wednesday 1 
+29-01-2026 Thursday 2 
+30-01-2026 Friday 3 
+31-01-2026 Saturday 4 
+01-02-2026 Sunday Holiday 
+02-02-2026 Monday 5 
+03-02-2026 Tuesday 6 
+04-02-2026 Wednesday 1 
+05-02-2026 Thursday 2 
+06-02-2026 Friday 3 
+07-02-2026 Saturday Holiday 
+08-02-2026 Sunday Holiday 
+09-02-2026 Monday 4 
+10-02-2026 Tuesday 5 
+11-02-2026 Wednesday 6 
+12-02-2026 Thursday 1 
+13-02-2026 Friday 2 
+14-02-2026 Saturday 3 
+15-02-2026 Sunday Holiday 
+16-02-2026 Monday 4 
+17-02-2026 Tuesday 5 
+18-02-2026 Wednesday Holiday 
+ 
+19-02-2026 Thursday 6 
+20-02-2026 Friday 1 
+21-02-2026 Saturday Holiday 
+22-02-2026 Sunday Holiday 
+23-02-2026 Monday 2 
+24-02-2026 Tuesday 3 
+25-02-2026 Wednesday 4 
+26-02-2026 Thursday 5 
+27-02-2026 Friday 6 
+28-02-2026 Saturday Holiday 
+01-03-2026 Sunday Holiday 
+02-03-2026 Monday 1 
+03-03-2026 Tuesday 2 
+04-03-2026 Wednesday 3 
+05-03-2026 Thursday 4 
+06-03-2026 Friday 5 
+07-03-2026 Saturday Holiday 
+08-03-2026 Sunday Holiday 
+09-03-2026 Monday `6 
+10-03-2026 Tuesday 1 
+11-03-2026 Wednesday 2 
+12-03-2026 Thursday 3 
+13-03-2026 Friday 4 
+14-03-2026 Saturday Holiday 
+15-03-2026 Sunday Holiday 
+16-03-2026 Monday Holiday 
+17-03-2026 Tuesday Holiday 
+18-03-2026 Wednesday Holiday 
+19-03-2026 Thursday Holiday 
+20-03-2026 Friday Holiday 
+21-03-2026 Saturday Holiday 
+22-03-2026 Sunday Holiday 
+23-03-2026 Monday 5 
+24-03-2026 Tuesday 6 
+25-03-2026 Wednesday 1 
+26-03-2026 Thursday 2 
+27-03-2026 Friday 3 
+28-03-2026 Saturday Holiday 
+29-03-2026 Sunday Holiday 
+30-03-2026 Monday 4 
+31-03-2026 Tuesday Holiday 
+01-04-2026 Wednesday 5 
+02-04-2026 Thursday 6 
+03-04-2026 Friday 1 
+04-04-2026 Saturday 2 
+05-04-2026 Sunday Holiday 
+06-04-2026 Monday 1 
+07-04-2026 Tuesday 2 
+08-04-2026 Wednesday 3 
+09-04-2026 Thursday 4 
+10-04-2026 Friday 5 
+  
+  
+  
+  
+  
+  
+  
+  
+  
+2. CHATBOT RULES FOR ANSWERING TIMETABLE QUERIES  
+  
+ 
+ 
+• If user asks for a specific day (Mon–Sat), convert to the correct Day Order.  
+• If the user asks “Sunday timetable” → reply: Sunday is a holiday.  
+• Only give timetable for the EXACT Day Order requested.  
+• If user asks “today’s timetable”, bot must:  
+1. Get today's weekday  
+2. Convert weekday → Day Order  
+3. Give only the timetable for that Day Order  
+• Do NOT mix multiple day orders in one answer.  
+• If Day Order does not exist → say “Invalid Day Order.”  
+3. CLEAN STRUCTURED TIMETABLE (FOR SCRAPING)  
+DAY ORDER I  
+I B.Sc. AI:  
+1.Allied   
+2. English  
+3. Python Theory (JM)  
+4. Python Lab (JM, JAK)  
+5. Language  
+II B.Sc. AI:  
+1: Language  
+2: English   
+3. Allied  
+4. IAI Theory (MGR) 5. Prolog Lab (MGR)   
+III B.Sc. AI:   
+1. ML Lab (MMA, SHM)  
+2. ML Lab (MMA, SHM)  
+3. CC Theory (MGR)   
+4. ML Theory (MMA)   
+5. IS Theory (JAK)  
+DAY ORDER II   
+I B.Sc. AI:  
+1: Allied  
+2: Python Theory (JM)  
+3: Language  
+4: Python Lab (JM, MMA)  
+5: Soft Skills  
+II B.Sc. AI:  
+1: IAI Theory (MGR)  
+2: Allied  
+3: IAI Theory (MGR)  
+4: English  
+5: Language  
+  
+  
+  
+III B.Sc. AI:  
+1: Mini Project (JAK, JM(1), MGR(2))   
+2. Mini Project (JAK, JM(1), MGR(2))  
+3: ML Theory (MMA)   
+4: CC Theory (MGR)  
+5. IoT Theory (FMI)  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+DAY ORDER III  
+  
+  I B.Sc. AI:  
+1: Python Lab (JM, JAK) 
+2. Python Lab (JM, JAK) 
+3: English  
+4: Language  
+5. Allied  
+  
+  
+II B.Sc. AI:  
+1: Language  
+2: Allied  
+3: IAI Theory (MGR)  
+4: Prolog Lab (MGR, JAK)  
+5: English  
+III B.Sc. AI:  
+1: CC Theory (MMA)  
+2: IS Theory (SHM)  
+3: ML Lab (MMA, JM)  
+4: ML Theory (MMA)  
+5: IoT Theory (FMI)  
+DAY ORDER IV:  
+I B.Sc. AI:  
+1: Python Lab (JM)  
+2. Python Lab (JM)  
+3: Allied  
+4: English   
+5: Language    
+II B.Sc. AI:  
+1: Allied  
+2: Language  
+3: English  
+4: Prolog Lab (MGR)  
+5. Prolog Lab (MGR)  
+  
+  
+  
+  III B.Sc. AI:  
+1: CC Theory (MMA)  
+2: IS Theory (SHM)  
+3: Mini Project (MGR, JM)  
+4: ML Theory (MMA)  
+5: IoT Theory (JAK)  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+DAY ORDER V  
+  
+  I B.Sc. AI:  
+1: English  
+2. Language  
+2: Python Theory (JM)  
+3: EVS (JM)  
+4: Allied  
+  
+   
+ II B.Sc. AI:  
+1: English  
+2: Prolog Lab (MGR, JAK)  
+3. Prolog Lab (MGR, JAK)   
+4: Allied  
+5: Language  
+III B.Sc AI:  
+1: CC Theory (MMA)  
+2: IS Theory (SHM)  
+3: ML Theory (MMA)  
+4: Mini Project (FMI, MMA)  
+5. Mini Project (FMI, MMA) DAY ORDER VI  
+I B.Sc. AI:  
+1: VBE  
+2: English  
+3: Python Theory (JM) 4: 
+Allied  
+5: Python Theory (JM)  
+II B.Sc AI:  
+1: IAI Theory (MGR)   
+2: English  
+3: NME (JAK)  
+4: Language  
+5: Allied  
+III B.Sc. AI:  
+1: ML Lab (MMA, JM(1), SHM(2))  
+2. ML Lab (MMA, JM(1), SHM(2)) 
+3: IS Theory (MGR) 4: IoT Theory 
+(JAK)  
+5: IoT Theory (FMI)  
+SUNDAY 
+======================  
+No classes.  
+No timetable.  
+No Day Order.  
+(HOLIDAY) 
