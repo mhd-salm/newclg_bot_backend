@@ -1,202 +1,222 @@
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
-import json
-from dotenv import load_dotenv
-import google.generativeai as genai
-from datetime import datetime, timedelta
 import re
 import logging
+from dotenv import load_dotenv
+from datetime import datetime, timedelta
+import google.generativeai as genai
 
-# --------------- CONFIG -----------------
+# ================= CONFIG =================
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
-    raise ValueError("GEMINI_API_KEY not found. Check your .env file.")
+    raise ValueError("GEMINI_API_KEY not found in .env")
 
 genai.configure(api_key=GEMINI_API_KEY)
 
 APP_PORT = int(os.environ.get("PORT", 4000))
-MAX_HISTORY = 2   # keep last N messages
-TEXT_FILES = ["college.txt", "shift1.txt", "shift2.txt", "rr.txt"]
-ALLOW_WEB_SEARCH = False
+MAX_HISTORY = 2
+TEXT_FILES = ["college.txt", "rr.txt", "shift1.txt", "shift2.txt"]
 
-# --------------- FLASK APP -----------------
+# ================= APP ====================
 app = Flask(__name__)
 CORS(app)
 
-# --------------- STORAGE -----------------
-college_texts = {}   # {filename: text}
-sessions = {}        # in-memory sessions
-
-# --------------- LOGGING -----------------
+# ================= LOGGING ================
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("CampusGuide")
 
-# --------------- TEXT FILE LOADING -----------------
-def load_text_files(text_files):
-    global college_texts
-    college_texts = {}
+# ================= STORAGE ================
+raw_texts = {}      # filename -> raw text
+text_chunks = []    # [{file, chunk}]
+sessions = {}
 
-    for file in text_files:
-        if not os.path.isfile(file):
-            logger.warning("Text file not found: %s", file)
+# ================= TEXT LOADING ============
+def normalize_text(text: str) -> str:
+    text = text.replace("\t", " ")
+    text = re.sub(r" +", " ", text)
+    return text.strip()
+
+
+def split_into_chunks(text: str):
+    """
+    VERY IMPORTANT:
+    - Splits by blank lines (paragraphs)
+    - Also keeps table rows together
+    """
+    blocks = re.split(r"\n\s*\n", text)
+    chunks = []
+
+    for block in blocks:
+        block = normalize_text(block)
+        if len(block) < 40:
             continue
-        try:
-            with open(file, "r", encoding="utf-8") as f:
-                college_texts[file] = f.read()
-            logger.info("%s loaded successfully", file)
-        except Exception as e:
-            logger.warning("Error loading %s: %s", file, e)
+        chunks.append(block)
 
-# Load at startup
+    return chunks
+
+
+def load_text_files(files):
+    global raw_texts, text_chunks
+    raw_texts = {}
+    text_chunks = []
+
+    for file in files:
+        if not os.path.isfile(file):
+            logger.warning("Missing file: %s", file)
+            continue
+
+        with open(file, "r", encoding="utf-8") as f:
+            text = f.read()
+
+        raw_texts[file] = text
+        chunks = split_into_chunks(text)
+
+        for ch in chunks:
+            text_chunks.append({"file": file, "chunk": ch})
+
+        logger.info("Loaded %s (%d chunks)", file, len(chunks))
+
+
 load_text_files(TEXT_FILES)
 
-# --------------- HELPERS -----------------
-def compact_history(session_msgs, limit=MAX_HISTORY):
+# ================= HELPERS =================
+def compact_history(msgs, limit=MAX_HISTORY):
     return "\n".join(
-        f"{m['role'].capitalize()}: {m['content']}"
-        for m in session_msgs[-limit:]
+        f"{m['role'].upper()}: {m['content']}"
+        for m in msgs[-limit:]
     )
 
-def get_day_order_for_date(dt: datetime):
-    weekday = dt.weekday()  # Monday=0 ... Sunday=6
-    if weekday == 6:
-        return None
-    return weekday + 1
 
-def parse_requested_target_date(lower_msg: str, now: datetime):
-    if "day after" in lower_msg or "day after tomorrow" in lower_msg:
+def score_chunk(chunk: str, query: str) -> int:
+    score = 0
+    q_words = set(query.lower().split())
+    chunk_l = chunk.lower()
+
+    for w in q_words:
+        if w in chunk_l:
+            score += 2
+
+    if "fee" in q_words and "total" in chunk_l:
+        score += 3
+
+    if "b.sc" in chunk_l or "ai" in chunk_l:
+        score += 1
+
+    return score
+
+
+def retrieve_relevant_chunks(query, top_k=6):
+    scored = []
+    for item in text_chunks:
+        s = score_chunk(item["chunk"], query)
+        if s > 0:
+            scored.append((s, item))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    selected = scored[:top_k]
+    return "\n\n".join(
+        f"[SOURCE: {i['file']}]\n{i['chunk']}"
+        for _, i in selected
+    )
+
+
+def build_prompt(context, history, user_msg):
+    return f"""
+You are CampusGuide AI.
+
+STRICT RULES:
+- Use ONLY the provided context
+- If info is missing, say: "Not available in college records"
+- Do NOT guess or calculate unless explicitly present
+
+CONTEXT:
+{context}
+
+RECENT CHAT:
+{history}
+
+USER QUESTION:
+{user_msg}
+
+Answer clearly and briefly.
+""".strip()
+
+
+def get_day_order(dt):
+    if dt.weekday() == 6:
+        return None
+    return dt.weekday() + 1
+
+
+def parse_date(msg, now):
+    if "day after tomorrow" in msg:
         return now + timedelta(days=2)
-    if "tomorrow" in lower_msg:
+    if "tomorrow" in msg:
         return now + timedelta(days=1)
     return now
 
-def search_text_files(query, max_lines=25):
-    query_words = set(query.lower().split())
-    results = []
-
-    for fname, text in college_texts.items():
-        for line in text.splitlines():
-            line_lower = line.lower()
-            score = sum(1 for w in query_words if w in line_lower)
-            if score > 0:
-                results.append((score, f"[{fname}] {line.strip()}"))
-
-    results.sort(reverse=True, key=lambda x: x[0])
-    return "\n".join(r for _, r in results[:max_lines])
-
-def build_prompt(extra_instruction, doc_text, history, user_message):
-    return f"""
-You are CampusGuide AI, a college information assistant.
-
-Use ONLY the provided text context for college-related questions.
-
-{extra_instruction}
-
-Text Context:
-{doc_text}
-
-Recent Chat:
-{history}
-
-User:
-{user_message}
-
-Answer briefly and clearly.
-""".strip()
-
-# --------------- ROUTES -----------------
+# ================= ROUTES ==================
 @app.route("/chat", methods=["POST"])
 def chat():
     try:
         data = request.get_json(force=True)
-        message = data.get("message", "") or ""
-        session_id = data.get("sessionId", "default")
+        msg = (data.get("message") or "").strip()
+        sid = data.get("sessionId", "default")
 
-        if session_id not in sessions:
-            sessions[session_id] = []
+        sessions.setdefault(sid, [])
+        sessions[sid].append({"role": "user", "content": msg})
 
-        sessions[session_id].append({"role": "user", "content": message})
-
-        lower_msg = message.lower().strip()
+        lower = msg.lower()
         now = datetime.now()
-        extra_instruction = ""
-        target = now
 
-        # ---- DATE / TIME QUICK ANSWERS ----
-        if lower_msg in ("date", "today", "time"):
-            reply = f"Today's date is {now.strftime('%B %d, %Y')} and the time is {now.strftime('%I:%M %p')}."
-            sessions[session_id].append({"role": "assistant", "content": reply})
+        # Quick date/time
+        if lower in {"date", "time", "today"}:
+            reply = f"Today is {now.strftime('%B %d, %Y')} ({now.strftime('%I:%M %p')})."
+            sessions[sid].append({"role": "assistant", "content": reply})
             return jsonify({"reply": reply})
 
-        # ---- TIMETABLE / DAY ORDER ----
-        timetable_keywords = ["timetable", "schedule", "class", "period", "day order", "dayorder"]
-        mentions_timetable = any(k in lower_msg for k in timetable_keywords)
-
-        if mentions_timetable:
-            target = parse_requested_target_date(lower_msg, now)
-            day_order = get_day_order_for_date(target)
-
-            if day_order is None:
-                reply = "It is Sunday. There is no timetable or day order on Sunday."
-                sessions[session_id].append({"role": "assistant", "content": reply})
+        # Day order logic
+        if "day order" in lower or "timetable" in lower:
+            target = parse_date(lower, now)
+            order = get_day_order(target)
+            if order is None:
+                reply = "Sunday has no classes or timetable."
+                sessions[sid].append({"role": "assistant", "content": reply})
                 return jsonify({"reply": reply})
 
-            if "day order" in lower_msg and "timetable" not in lower_msg:
-                pretty = target.strftime("%A, %B %d, %Y")
-                reply = f"{pretty} is Day Order {day_order}."
-                sessions[session_id].append({"role": "assistant", "content": reply})
-                return jsonify({"reply": reply})
+        context = retrieve_relevant_chunks(msg)
+        if not context:
+            reply = "Not available in college records."
+            sessions[sid].append({"role": "assistant", "content": reply})
+            return jsonify({"reply": reply})
 
-            extra_instruction = (
-                f"The user is asking for the timetable for Day Order {day_order}. "
-                f"Extract ONLY the III B.Sc AI timetable from the text context."
-            )
-
-        # ---- SEARCH TEXT FILES ----
-        doc_text = search_text_files(message)
-        if not doc_text:
-            doc_text = "No relevant college data found."
-
-        history = compact_history(sessions[session_id])
-        prompt = build_prompt(extra_instruction, doc_text, history, message)
+        history = compact_history(sessions[sid])
+        prompt = build_prompt(context, history, msg)
 
         model = genai.GenerativeModel("models/gemini-2.5-flash")
-        response = model.generate_content(prompt)
-        reply = getattr(response, "text", None) or str(response)
+        res = model.generate_content(prompt)
+        reply = getattr(res, "text", "Not available in college records.")
 
-        sessions[session_id].append({"role": "assistant", "content": reply})
-
-        if len(sessions[session_id]) > MAX_HISTORY * 2:
-            sessions[session_id] = sessions[session_id][-MAX_HISTORY * 2:]
+        sessions[sid].append({"role": "assistant", "content": reply})
+        sessions[sid] = sessions[sid][-MAX_HISTORY * 2:]
 
         return jsonify({"reply": reply})
 
     except Exception as e:
-        logger.exception("Backend Error")
-        return jsonify({"reply": f"⚠ Server error: {e}"}), 500
+        logger.exception("Chat error")
+        return jsonify({"reply": f"Server error: {e}"}), 500
 
-# --------------- ADMIN ROUTE -----------------
+
 @app.route("/reload_texts", methods=["POST"])
 def reload_texts():
-    try:
-        data = request.get_json(force=True) or {}
-        files = data.get("text_files", TEXT_FILES)
-        load_text_files(files)
-        return jsonify({"ok": True, "files_loaded": list(college_texts.keys())})
-    except Exception as e:
-        logger.exception("Reload Error")
-        return jsonify({"ok": False, "error": str(e)}), 500
+    load_text_files(TEXT_FILES)
+    return jsonify({"ok": True, "chunks": len(text_chunks)})
 
-# --------------- RUN -----------------
+
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 4000))
-    app.run(host="0.0.0.0", port=port)
-    #app.run(port=4000)
-
-
-
-
-
-
+    app.run(host="0.0.0.0", port=APP_PORT)
+   # app.run(port=4000)
