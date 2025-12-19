@@ -35,8 +35,8 @@ sessions = {}
 
 # ================= FALLBACK =================
 FALLBACK_QA = {
-    "secretary of the new college": "Janab M. Nazar Mohamed Sahib",
-    "important days in december 2025": """Here are the important dates in December 2025:
+    "secretary": "Janab M. Nazar Mohamed Sahib",
+    "december": """Here are the important dates in December 2025:
 
 - December 01, Monday:
   Publication of November 2025 End-Semester Examination Results
@@ -60,7 +60,7 @@ FALLBACK_QA = {
   Holidays
 """
 ,
-    "all courses": """The college offers the following courses:
+    "courses": """The college offers the following courses:
 School of Language and Literature:
 - B.A. English Literature
 - B.A. Arabic
@@ -127,7 +127,7 @@ School of Biological Sciences:
 - Ph.D. Zoology
 - Ph.D. Botany
 """,
-    "fee structure for ai course": """The fee structure for B.Sc. Artificial Intelligence
+    "fee": """The fee structure for B.Sc. Artificial Intelligence
 is as follows:
 
 - Insurance Fee: ₹75
@@ -147,7 +147,7 @@ is as follows:
 Total Fee: ₹41,585
 """
 ,
-    "measi schemes": """The Muslim Educational Association of Southern India (MEASI),
+    "measi": """The Muslim Educational Association of Southern India (MEASI),
 the parent body of The New College, offers the following schemes:
 
 1. MEASI Scholarship
@@ -188,7 +188,7 @@ This is a non-statutory committee.
 - Coordinator (Shift II): Dr. N. Abdul Kalam
 """
 ,
-    "staffs in zoology department": "The staff in the Zoology department are:\n"
+    "zoology": "The staff in the Zoology department are:\n"
 
 "* Dr. M. Asrar Sheriff Associate Professor & Head of the Department, Principal\n"
 "* Dr. Mohammed Ibrahim Naveed (Associate Professor & Head of the Department i/c)\n"
@@ -206,6 +206,10 @@ This is a non-statutory committee.
 "* Dr. Nagoor Meerasa Mohammed (Management Faculty, Assistant Professor)\n",
     "principal and vice principals":
         "Principal: Dr. M. Asrar Sheriff\n"
+        "Vice-Principal (Academic): Dr. P.A. Abdullah Mahaboob\n"
+        "Vice-Principal (Administration): Dr. A. Hyder Ali\n"
+        "Vice-Principal (Shift II): Dr. Syed Abdul Hameed",
+    "vice principals":
         "Vice-Principal (Academic): Dr. P.A. Abdullah Mahaboob\n"
         "Vice-Principal (Administration): Dr. A. Hyder Ali\n"
         "Vice-Principal (Shift II): Dr. Syed Abdul Hameed",
@@ -246,6 +250,8 @@ Director:
 Dr. M. Abdul Jamal
 Associate Professor of Economics
 """,
+
+    "principal":" Dr. M. Asrar Sheriff",
     "iqac": """The Internal Quality Assurance Cell (IQAC) oversees the overall
 quality initiatives of the college.
 
@@ -528,4 +534,3 @@ def reload_texts():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=APP_PORT)
-
