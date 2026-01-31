@@ -42,7 +42,7 @@ def get_gemini_model():
         api_key = GEMINI_KEYS[current_key_index]
         key_number = current_key_index + 1
 
-        print(f"🔑 Using Gemini Key-{key_number}")  # TEMP
+        app.logger.info(f"🔑 Using Gemini Key-{key_number}")  # TEMP
 
         try:
             genai.configure(api_key=api_key)
@@ -55,7 +55,7 @@ def get_gemini_model():
             )
 
         except Exception as e:
-            print(f"❌ Gemini Key-{key_number} failed:", str(e))  # TEMP
+            app.logger.info(f"❌ Gemini Key-{key_number} failed:", str(e))  # TEMP
 
             last_error = e
             current_key_index += 1
@@ -63,7 +63,7 @@ def get_gemini_model():
 
             # 🔄 If all keys tried, reset back to key 1
             if current_key_index >= len(GEMINI_KEYS):
-                print("🔁 All keys exhausted. Resetting to Key-1")  # TEMP
+                app.logger.info("🔁 All keys exhausted. Resetting to Key-1")  # TEMP
                 current_key_index = 0
                 break
 
@@ -158,3 +158,4 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=4000, debug=True)
+
