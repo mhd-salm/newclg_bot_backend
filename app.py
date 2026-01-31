@@ -5,17 +5,60 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
 import re
+import itertools
 import google.generativeai as genai
+from dotenv import load_dotenv   # 🔹 NEW
+
+# ---------------- LOAD .env (LOCAL ONLY) ---------------- #
+
+load_dotenv()  # 🔹 Loads GEMINI_KEYS from .env when running locally
 
 # ---------------- BASIC CONFIG ---------------- #
 
 app = Flask(__name__)
 CORS(app)
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-
 MODEL_NAME = "gemini-2.5-flash-lite"
 MAX_OUTPUT_TOKENS = 180
+
+# ---------------- GEMINI KEY ROTATION ---------------- #
+
+GEMINI_KEYS = os.getenv("GEMINI_KEYS", "").split(",")
+GEMINI_KEYS = [k.strip() for k in GEMINI_KEYS if k.strip()]
+
+# 🔍 TEMP VERIFICATION (REMOVE AFTER TESTING)
+print("🔍 Gemini keys loaded:", len(GEMINI_KEYS))
+
+if not GEMINI_KEYS:
+    raise RuntimeError("No Gemini API keys found in GEMINI_KEYS")
+
+key_cycle = itertools.cycle(GEMINI_KEYS)
+
+def get_gemini_model():
+    last_error = None
+
+    for _ in range(len(GEMINI_KEYS)):
+        api_key = next(key_cycle)
+
+        # 🔍 TEMP VERIFICATION (REMOVE AFTER TESTING)
+        print("🔁 Trying Gemini key:", api_key[:6] + "****")
+
+        try:
+            genai.configure(api_key=api_key)
+            return genai.GenerativeModel(
+                model_name=MODEL_NAME,
+                generation_config={
+                    "max_output_tokens": MAX_OUTPUT_TOKENS,
+                    "temperature": 0.2
+                }
+            )
+        except Exception as e:
+            # 🔍 TEMP VERIFICATION (REMOVE AFTER TESTING)
+            print("❌ Key failed:", api_key[:6] + "****", "|", str(e))
+            last_error = e
+            continue
+
+    raise RuntimeError(f"All Gemini API keys exhausted: {last_error}")
 
 # ---------------- SYSTEM IDENTITY ---------------- #
 
@@ -41,7 +84,7 @@ def load_chunks():
             continue
         with open(file, "r", encoding="utf-8") as f:
             text = f.read()
-            parts = re.split(r"\n\s*\n", text)  # paragraph chunks
+            parts = re.split(r"\n\s*\n", text)
             for p in parts:
                 p = p.strip()
                 if len(p) > 40:
@@ -89,18 +132,14 @@ def chat():
 
     prompt.append(f"User question: {user_msg}")
 
-    model = genai.GenerativeModel(
-        model_name=MODEL_NAME,
-        generation_config={
-            "max_output_tokens": MAX_OUTPUT_TOKENS,
-            "temperature": 0.2
-        }
-    )
-
     try:
+        model = get_gemini_model()
         response = model.generate_content(prompt)
         reply = response.text.strip()
     except Exception as e:
+        msg = str(e).lower()
+        if "quota" in msg or "limit" in msg:
+            return jsonify({"error": "Service temporarily busy. Please try again later."}), 429
         return jsonify({"error": str(e)}), 500
 
     return jsonify({"reply": reply})
