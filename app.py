@@ -5,13 +5,12 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
 import re
-import itertools
 import google.generativeai as genai
-from dotenv import load_dotenv   # 🔹 NEW
+from dotenv import load_dotenv
 
 # ---------------- LOAD .env (LOCAL ONLY) ---------------- #
 
-load_dotenv()  # 🔹 Loads GEMINI_KEYS from .env when running locally
+load_dotenv()
 
 # ---------------- BASIC CONFIG ---------------- #
 
@@ -21,27 +20,29 @@ CORS(app)
 MODEL_NAME = "gemini-2.5-flash-lite"
 MAX_OUTPUT_TOKENS = 180
 
-# ---------------- GEMINI KEY ROTATION ---------------- #
+# ---------------- GEMINI KEY FAILOVER (STICKY) ---------------- #
 
 GEMINI_KEYS = os.getenv("GEMINI_KEYS", "").split(",")
 GEMINI_KEYS = [k.strip() for k in GEMINI_KEYS if k.strip()]
 
-# 🔍 TEMP VERIFICATION (REMOVE AFTER TESTING)
-print("🔍 Gemini keys loaded:", len(GEMINI_KEYS))
+print("🔍 Gemini keys loaded:", len(GEMINI_KEYS))  # TEMP
 
 if not GEMINI_KEYS:
     raise RuntimeError("No Gemini API keys found in GEMINI_KEYS")
 
-key_cycle = itertools.cycle(GEMINI_KEYS)
+current_key_index = 0  # 🔒 stick to this key until failure
 
 def get_gemini_model():
+    global current_key_index
+
+    attempts = 0
     last_error = None
 
-    for _ in range(len(GEMINI_KEYS)):
-        api_key = next(key_cycle)
+    while attempts < len(GEMINI_KEYS):
+        api_key = GEMINI_KEYS[current_key_index]
+        key_number = current_key_index + 1
 
-        # 🔍 TEMP VERIFICATION (REMOVE AFTER TESTING)
-        print("🔁 Trying Gemini key:", api_key[:6] + "****")
+        print(f"🔑 Using Gemini Key-{key_number}")  # TEMP
 
         try:
             genai.configure(api_key=api_key)
@@ -52,13 +53,21 @@ def get_gemini_model():
                     "temperature": 0.2
                 }
             )
-        except Exception as e:
-            # 🔍 TEMP VERIFICATION (REMOVE AFTER TESTING)
-            print("❌ Key failed:", api_key[:6] + "****", "|", str(e))
-            last_error = e
-            continue
 
-    raise RuntimeError(f"All Gemini API keys exhausted: {last_error}")
+        except Exception as e:
+            print(f"❌ Gemini Key-{key_number} failed:", str(e))  # TEMP
+
+            last_error = e
+            current_key_index += 1
+            attempts += 1
+
+            # 🔄 If all keys tried, reset back to key 1
+            if current_key_index >= len(GEMINI_KEYS):
+                print("🔁 All keys exhausted. Resetting to Key-1")  # TEMP
+                current_key_index = 0
+                break
+
+    raise RuntimeError(f"All Gemini API keys failed: {last_error}")
 
 # ---------------- SYSTEM IDENTITY ---------------- #
 
@@ -136,6 +145,7 @@ def chat():
         model = get_gemini_model()
         response = model.generate_content(prompt)
         reply = response.text.strip()
+
     except Exception as e:
         msg = str(e).lower()
         if "quota" in msg or "limit" in msg:
