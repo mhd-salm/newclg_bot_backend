@@ -5,8 +5,9 @@ The contributions listed below are specific to this project and do not represent
 Lead Developer & Backend Developer: Salman
 Salman served as the lead developer and backend developer for this project. He was responsible for designing the overall system architecture, developing and maintaining the backend using Flask, integrating the AI model, implementing API logic and key failover mechanisms, and ensuring secure and efficient server-side operations. He also guided the project’s technical direction and made core architectural decisions to ensure stability and scalability.
 Frontend Developer: Musthanzir
-Musthanzir designed and implemented the frontend of the chatbot. He focused on building a clean, responsive, and user-friendly interface, managing client-side logic, and ensuring seamless communication between the frontend and backend. His work ensured smooth user interaction across devices.
+Mustansir designed and implemented the frontend of the chatbot. He focused on building a clean, responsive, and user-friendly interface, managing client-side logic, and ensuring seamless communication between the frontend and backend. His work ensured smooth user interaction across devices.
 Information & Data Manager: Sathya
 Sathya handled information and data management for the project. He was responsible for collecting, organizing, and maintaining project-related documents and datasets, managing text resources used by the chatbot, and ensuring the accuracy, consistency, and structure of information supplied to the system.
 Testing & Quality Assurance: Shahid
 Shahid was responsible for testing and quality assurance. He conducted thorough testing, identified bugs and edge cases, verified feature behavior, and helped ensure the overall stability, reliability, and performance of the chatbot.
+
