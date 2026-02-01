@@ -56,7 +56,7 @@ def get_gemini_model():
         api_key = GEMINI_KEYS[current_key_index]
         key_number = current_key_index + 1
 
-        app.logger.info("🔍 Gemini keys loaded: %d", len(GEMINI_KEYS))  # TEMP
+       
 
         try:
             genai.configure(api_key=api_key)
@@ -69,7 +69,8 @@ def get_gemini_model():
             )
 
         except Exception as e:
-            app.logger.info(f"❌ Gemini Key-{key_number} failed:", str(e))  # TEMP
+            app.logger.warning(f"❌ Gemini Key-{key_number} failed. Switching key.")
+
 
             last_error = e
             current_key_index += 1
@@ -171,20 +172,20 @@ def chat():
             response = model.generate_content(prompt)
             return jsonify({"reply": response.text.strip()})
         except Exception as e:
-            app.logger.info("❌ Gemini error:", repr(e))
+            app.logger.warning("⚠️ Gemini request failed.")
             msg = str(e).lower()
             last_error = e
 
             # Retry on quota or other recoverable errors
             if "quota" in msg or "limit" in msg or "429" in msg:
-                app.logger.info("⚠️ Quota hit. Switching key...")
+                app.logger.info(f"⚠️ Quota hit. Switching key...")
                 current_key_index = (current_key_index + 1) % len(GEMINI_KEYS)
                 tried_keys += 1
                 continue
 
             # Retry on network / API errors
             if "invalid key" in msg or "network" in msg:
-                app.logger.info("⚠️ Recoverable error. Switching key...")
+                app.logger.info(f"⚠️ Recoverable error. Switching key...")
                 current_key_index = (current_key_index + 1) % len(GEMINI_KEYS)
                 tried_keys += 1
                 continue
@@ -203,6 +204,7 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=4000, debug=True)
+
 
 
 
