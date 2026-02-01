@@ -20,6 +20,20 @@ CORS(app)
 MODEL_NAME = "gemini-2.5-flash-lite"
 MAX_OUTPUT_TOKENS = 180
 
+
+
+
+import logging
+import sys
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+
+app.logger.setLevel(logging.INFO)
+
 # ---------------- GEMINI KEY FAILOVER (STICKY) ---------------- #
 
 GEMINI_KEYS = os.getenv("GEMINI_KEYS", "").split(",")
@@ -189,6 +203,7 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=4000, debug=True)
+
 
 
 
