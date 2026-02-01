@@ -25,7 +25,7 @@ MAX_OUTPUT_TOKENS = 180
 GEMINI_KEYS = os.getenv("GEMINI_KEYS", "").split(",")
 GEMINI_KEYS = [k.strip() for k in GEMINI_KEYS if k.strip()]
 
-print("🔍 Gemini keys loaded:", len(GEMINI_KEYS))  # TEMP
+app.logger("🔍 Gemini keys loaded:", len(GEMINI_KEYS))  # TEMP
 
 if not GEMINI_KEYS:
     raise RuntimeError("No Gemini API keys found in GEMINI_KEYS")
@@ -55,7 +55,7 @@ def get_gemini_model():
             )
 
         except Exception as e:
-            print(f"❌ Gemini Key-{key_number} failed:", str(e))  # TEMP
+            app.logger(f"❌ Gemini Key-{key_number} failed:", str(e))  # TEMP
 
             last_error = e
             current_key_index += 1
@@ -63,7 +63,7 @@ def get_gemini_model():
 
             # 🔄 If all keys tried, reset back to key 1
             if current_key_index >= len(GEMINI_KEYS):
-                print("🔁 All keys exhausted. Resetting to Key-1")  # TEMP
+                app.logger("🔁 All keys exhausted. Resetting to Key-1")  # TEMP
                 current_key_index = 0
                 break
 
@@ -189,4 +189,5 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=4000, debug=True)
+
 
