@@ -25,7 +25,7 @@ MAX_OUTPUT_TOKENS = 180
 GEMINI_KEYS = os.getenv("GEMINI_KEYS", "").split(",")
 GEMINI_KEYS = [k.strip() for k in GEMINI_KEYS if k.strip()]
 
-app.logger("🔍 Gemini keys loaded:", len(GEMINI_KEYS))  # TEMP
+app.logger.info("🔍 Gemini keys loaded:", len(GEMINI_KEYS))  # TEMP
 
 if not GEMINI_KEYS:
     raise RuntimeError("No Gemini API keys found in GEMINI_KEYS")
@@ -189,6 +189,7 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=4000, debug=True)
+
 
 
 
