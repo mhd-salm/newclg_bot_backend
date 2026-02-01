@@ -7,7 +7,7 @@ import os
 import re
 import google.generativeai as genai
 from dotenv import load_dotenv
-
+import logging
 # ---------------- LOAD .env (LOCAL ONLY) ---------------- #
 
 load_dotenv()
@@ -189,5 +189,6 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=4000, debug=True)
+
 
 
