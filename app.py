@@ -123,23 +123,70 @@ def load_chunks():
 CHUNKS = load_chunks()
 
 # ---------------- CHUNK SELECTOR ---------------- #
+INTENT_KEYWORDS = {
+    "developers": [
+        "who made", "who created", "developer", "built you",
+        "salman", "mustansir", "shahid", "sathya"
+    ],
+    "timetable": [
+        "timetable", "time table", "schedule", "period",
+        "day order", "dayorder", "today", "tomorrow",
+        "monday", "tuesday", "wednesday", "thursday", "friday"
+    ],
+    "shift1": [
+        "shift 1", "shift one", "morning",
+        "fee", "fees", "fee structure", "how much"
+    ],
+    "shift2": [
+        "shift 2", "shift two", "evening",
+        "fee", "fees", "fee structure", "how much"
+    ],
+    "college": [
+        "college", "new college", "newcollege",
+        "about", "history", "principal",
+        "address", "contact", "department", "course"
+    ]
+}
 
 def select_relevant_chunks(user_msg, limit=3):
-    keywords = user_msg.lower().split()
+    user_msg_l = user_msg.lower()
+    keywords = user_msg_l.split()
     scored = []
 
+    # 🧠 Detect intent tags from user message
+    detected_tags = {
+        tag for tag, words in INTENT_KEYWORDS.items()
+        if any(w in user_msg_l for w in words)
+    }
+
+    # 🔍 Loop only relevant chunks if intent detected
     for c in CHUNKS:
+        if detected_tags and c["tag"] not in detected_tags:
+            continue
+
         score = sum(1 for k in keywords if k in c["text"])
+
+        # 🎯 Intent-based boost
+        intent_words = INTENT_KEYWORDS.get(c["tag"], [])
+        if any(w in user_msg_l for w in intent_words):
+            score += 50
+
+        # 🔒 Strong priority for developers
         if c["tag"] == "developers" and any(
-            k in user_msg.lower()
-            for k in ["who made", "who created", "developer", "built you","salman","mustansir","shahid","sathya"]
+            k in user_msg_l
+            for k in [
+                "who made", "who created", "developer", "built you",
+                "salman", "mustansir", "shahid", "sathya"
+            ]
         ):
             score += 100
+
         if score > 0:
             scored.append((score, c["raw"]))
 
     scored.sort(reverse=True, key=lambda x: x[0])
     return [s[1] for s in scored[:limit]]
+
 
 # ---------------- CHAT ROUTE ---------------- #
 
@@ -204,10 +251,4 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=4000, debug=True)
-
-
-
-
-
-
 
