@@ -152,7 +152,7 @@ def chat():
 
     while tried_keys < len(GEMINI_KEYS):
         try:
-            print(f"🚀 Trying Gemini Key-{current_key_index + 1}")
+            app.logger(f"🚀 Trying Gemini Key-{current_key_index + 1}")
             model = get_gemini_model()
             response = model.generate_content(prompt)
             return jsonify({"reply": response.text.strip()})
@@ -163,14 +163,14 @@ def chat():
 
             # Retry on quota or other recoverable errors
             if "quota" in msg or "limit" in msg or "429" in msg:
-                print("⚠️ Quota hit. Switching key...")
+                app.logger("⚠️ Quota hit. Switching key...")
                 current_key_index = (current_key_index + 1) % len(GEMINI_KEYS)
                 tried_keys += 1
                 continue
 
             # Retry on network / API errors
             if "invalid key" in msg or "network" in msg:
-                print("⚠️ Recoverable error. Switching key...")
+                app.logger("⚠️ Recoverable error. Switching key...")
                 current_key_index = (current_key_index + 1) % len(GEMINI_KEYS)
                 tried_keys += 1
                 continue
@@ -189,3 +189,4 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=4000, debug=True)
+
