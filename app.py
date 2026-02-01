@@ -42,7 +42,7 @@ def get_gemini_model():
         api_key = GEMINI_KEYS[current_key_index]
         key_number = current_key_index + 1
 
-        app.logger.info(f"🔑 Using Gemini Key-{key_number}")  # TEMP
+        app.logger(f"🔑 Using Gemini Key-{key_number}")  # TEMP
 
         try:
             genai.configure(api_key=api_key)
@@ -55,7 +55,7 @@ def get_gemini_model():
             )
 
         except Exception as e:
-            print(f"❌ Gemini Key-{key_number} failed:", str(e))  # TEMP
+            app.logger(f"❌ Gemini Key-{key_number} failed:", str(e))  # TEMP
 
             last_error = e
             current_key_index += 1
@@ -63,7 +63,7 @@ def get_gemini_model():
 
             # 🔄 If all keys tried, reset back to key 1
             if current_key_index >= len(GEMINI_KEYS):
-                print("🔁 All keys exhausted. Resetting to Key-1")  # TEMP
+                app.logger("🔁 All keys exhausted. Resetting to Key-1")  # TEMP
                 current_key_index = 0
                 break
 
@@ -152,25 +152,25 @@ def chat():
 
     while tried_keys < len(GEMINI_KEYS):
         try:
-            print(f"🚀 Trying Gemini Key-{current_key_index + 1}")
+            app.logger(f"🚀 Trying Gemini Key-{current_key_index + 1}")
             model = get_gemini_model()
             response = model.generate_content(prompt)
             return jsonify({"reply": response.text.strip()})
         except Exception as e:
-            print("❌ Gemini error:", repr(e))
+            app.logger("❌ Gemini error:", repr(e))
             msg = str(e).lower()
             last_error = e
 
             # Retry on quota or other recoverable errors
             if "quota" in msg or "limit" in msg or "429" in msg:
-                print("⚠️ Quota hit. Switching key...")
+                app.logger("⚠️ Quota hit. Switching key...")
                 current_key_index = (current_key_index + 1) % len(GEMINI_KEYS)
                 tried_keys += 1
                 continue
 
             # Retry on network / API errors
             if "invalid key" in msg or "network" in msg:
-                print("⚠️ Recoverable error. Switching key...")
+                app.logger("⚠️ Recoverable error. Switching key...")
                 current_key_index = (current_key_index + 1) % len(GEMINI_KEYS)
                 tried_keys += 1
                 continue
@@ -189,3 +189,4 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=4000, debug=True)
+
