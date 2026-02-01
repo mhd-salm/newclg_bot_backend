@@ -42,7 +42,7 @@ def get_gemini_model():
         api_key = GEMINI_KEYS[current_key_index]
         key_number = current_key_index + 1
 
-        app.logger.info(f"🔑 Using Gemini Key-{key_number}")  # TEMP
+        print(f"🔑 Using Gemini Key-{key_number}")  # TEMP
 
         try:
             genai.configure(api_key=api_key)
@@ -55,7 +55,7 @@ def get_gemini_model():
             )
 
         except Exception as e:
-            app.logger.info(f"❌ Gemini Key-{key_number} failed:", str(e))  # TEMP
+            print(f"❌ Gemini Key-{key_number} failed:", str(e))  # TEMP
 
             last_error = e
             current_key_index += 1
@@ -63,7 +63,7 @@ def get_gemini_model():
 
             # 🔄 If all keys tried, reset back to key 1
             if current_key_index >= len(GEMINI_KEYS):
-                app.logger.info("🔁 All keys exhausted. Resetting to Key-1")  # TEMP
+                print("🔁 All keys exhausted. Resetting to Key-1")  # TEMP
                 current_key_index = 0
                 break
 
@@ -124,6 +124,8 @@ def select_relevant_chunks(user_msg, limit=3):
 
 @app.route("/chat", methods=["POST"])
 def chat():
+    global current_key_index
+
     data = request.json
     user_msg = data.get("message", "").strip()
 
@@ -133,29 +135,46 @@ def chat():
     relevant_chunks = select_relevant_chunks(user_msg)
 
     prompt = [SYSTEM_PROMPT]
-
     if relevant_chunks:
         prompt.append("Relevant college information:")
         for c in relevant_chunks:
             prompt.append(c)
-
     prompt.append(f"User question: {user_msg}")
 
-    try:
-        model = get_gemini_model()
-        response = model.generate_content(prompt)
-        reply = response.text.strip()
+    tried_keys = 0
+    last_error = None
 
-    except Exception as e:
-        msg = str(e).lower()
-        if "quota" in msg or "limit" in msg:
-            return jsonify({"error": "Service temporarily busy. Please try again later."}), 429
-        return jsonify({"error": str(e)}), 500
+    while tried_keys < len(GEMINI_KEYS):
+        try:
+            print(f"🚀 Trying Gemini Key-{current_key_index + 1}")
 
-    return jsonify({"reply": reply})
+            model = get_gemini_model()
+            response = model.generate_content(prompt)
+
+            return jsonify({"reply": response.text.strip()})
+
+        except Exception as e:
+            msg = str(e).lower()
+            last_error = e
+
+            if "quota" in msg or "limit" in msg or "429" in msg:
+                print("⚠️ Quota hit. Switching key...")
+
+                # 🔁 Move to next key (LOOPING)
+                current_key_index = (current_key_index + 1) % len(GEMINI_KEYS)
+                tried_keys += 1
+                continue
+
+            # Non-quota error → stop
+            return jsonify({"error": str(e)}), 500
+
+    # 🔴 All keys exhausted in this request
+    return jsonify({
+        "error": "All Gemini API keys are rate-limited. Please try again later."
+    }), 429
+
 
 # ---------------- RUN ---------------- #
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=4000, debug=True)
-
