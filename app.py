@@ -42,7 +42,7 @@ def get_gemini_model():
         api_key = GEMINI_KEYS[current_key_index]
         key_number = current_key_index + 1
 
-        print(f"🔑 Using Gemini Key-{key_number}")  # TEMP
+        app.logger(f"🔑 Using Gemini Key-{key_number}")  # TEMP
 
         try:
             genai.configure(api_key=api_key)
@@ -189,5 +189,6 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=4000, debug=True)
+
 
 
