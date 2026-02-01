@@ -83,7 +83,8 @@ DATA_FILES = {
     "college": "college.txt",
     "shift1": "shift1.txt",
     "shift2": "shift2.txt",
-    "timetable": "rr.txt"
+    "timetable": "rr.txt",
+    "developers":"dev.txt"
 }
 
 def load_chunks():
@@ -114,6 +115,11 @@ def select_relevant_chunks(user_msg, limit=3):
 
     for c in CHUNKS:
         score = sum(1 for k in keywords if k in c["text"])
+        if c["tag"] == "developers" and any(
+            k in user_msg.lower()
+            for k in ["who made", "who created", "developer", "built you","salman","mustansir","shahid","sathya"]
+        ):
+            score += 100
         if score > 0:
             scored.append((score, c["raw"]))
 
@@ -147,26 +153,31 @@ def chat():
     while tried_keys < len(GEMINI_KEYS):
         try:
             print(f"🚀 Trying Gemini Key-{current_key_index + 1}")
-
             model = get_gemini_model()
             response = model.generate_content(prompt)
-
             return jsonify({"reply": response.text.strip()})
-
         except Exception as e:
+            
             msg = str(e).lower()
             last_error = e
 
+            # Retry on quota or other recoverable errors
             if "quota" in msg or "limit" in msg or "429" in msg:
                 print("⚠️ Quota hit. Switching key...")
-
-                # 🔁 Move to next key (LOOPING)
                 current_key_index = (current_key_index + 1) % len(GEMINI_KEYS)
                 tried_keys += 1
                 continue
 
-            # Non-quota error → stop
+            # Retry on network / API errors
+            if "invalid key" in msg or "network" in msg:
+                print("⚠️ Recoverable error. Switching key...")
+                current_key_index = (current_key_index + 1) % len(GEMINI_KEYS)
+                tried_keys += 1
+                continue
+
+            # Non-recoverable → 500
             return jsonify({"error": str(e)}), 500
+
 
     # 🔴 All keys exhausted in this request
     return jsonify({
