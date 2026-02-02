@@ -126,7 +126,7 @@ CHUNKS = load_chunks()
 INTENT_KEYWORDS = {
     "developers": [
         "who made", "who created", "developer", "built you",
-        "salman", "mustansir", "shahid", "sathya","ishaq
+        "salman", "mustansir", "shahid", "sathya","ishaq"
     ],
     "timetable": [
         "timetable", "time table", "schedule", "period",
@@ -176,7 +176,7 @@ def select_relevant_chunks(user_msg, limit=3):
             k in user_msg_l
             for k in [
                 "who made", "who created", "developer", "built you",
-                "salman", "mustansir", "shahid", "sathya"
+                "salman", "mustansir", "shahid", "sathya","ishaq"
             ]
         ):
             score += 100
@@ -251,5 +251,6 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=4000, debug=True)
+
 
 
