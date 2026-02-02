@@ -126,7 +126,7 @@ CHUNKS = load_chunks()
 INTENT_KEYWORDS = {
     "developers": [
         "who made", "who created", "developer", "built you",
-        "salman", "mustansir", "shahid", "sathya"
+        "salman", "mustansir", "shahid", "sathya","ishaq
     ],
     "timetable": [
         "timetable", "time table", "schedule", "period",
@@ -251,4 +251,5 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=4000, debug=True)
+
 
