@@ -8,6 +8,10 @@ import re
 import google.generativeai as genai
 from dotenv import load_dotenv
 import logging
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
+
 # ---------------- LOAD .env (LOCAL ONLY) ---------------- #
 
 load_dotenv()
@@ -15,7 +19,14 @@ load_dotenv()
 # ---------------- BASIC CONFIG ---------------- #
 
 app = Flask(__name__)
-CORS(app)
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["60 per minute"]  # Global safety limit
+)
+
+CORS(app, resources={r"/chat": {"origins": ["https://tnc-ai.in"]}})
+
 
 MODEL_NAME = "gemini-2.5-flash-lite"
 MAX_OUTPUT_TOKENS = 180
@@ -191,6 +202,8 @@ def select_relevant_chunks(user_msg, limit=3):
 # ---------------- CHAT ROUTE ---------------- #
 
 @app.route("/chat", methods=["POST"])
+@limiter.limit("15 per minute")
+
 def chat():
     global current_key_index
 
@@ -250,8 +263,7 @@ def chat():
 # ---------------- RUN ---------------- #
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=4000, debug=True)
-
+    app.run(host="0.0.0.0", port=4000, debug=False)
 
 
 
