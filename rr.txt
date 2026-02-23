@@ -68,8 +68,7 @@ date day day order
 • Only give timetable for the EXACT Day Order requested.  
 • If user asks “today’s timetable”, bot must:  
 1. Get today's weekday  
-2. Convert weekday → Day Order  
-3. Give only the timetable for that Day Order  
+2. Give only the timetable for that Day Order  
 • Do NOT mix multiple day orders in one answer.  
 • If Day Order does not exist → say “Invalid Day Order.”  
 3. CLEAN STRUCTURED TIMETABLE (FOR SCRAPING)  
@@ -230,4 +229,5 @@ No classes.
 No timetable.  
 No Day Order.  
 (HOLIDAY) 
+
 
