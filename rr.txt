@@ -3,92 +3,6 @@ B.Sc AI DEPARTMENT – COMPLETE TIMETABLE + EXPLANATION GUIDE (FOR CHATBOT)
  
   
 date day day order 
-01-12-2025 Monday 1 
-02-12-2025 Tuesday 2 
-03-12-2025 Wednesday 3 
-04-12-2025 Thursday 4 
-05-12-2025 Friday 5 
-06-12-2025 Saturday Holiday 
-07-12-2025 Sunday Holiday 
-08-12-2025 Monday 6 
-09-12-2025 Tuesday 1 
-10-12-2025 Wednesday 2 
-11-12-2025 Thursday 3 
-12-12-2025 Friday 4 
-13-12-2025 Saturday 5 
-14-12-2025 Sunday Holiday 
-15-12-2025 Monday 6 
-16-12-2025 Tuesday 1 
-17-12-2025 Wednesday 2 
-18-12-2025 Thursday 3 
-19-12-2025 Friday 4 
-20-12-2025 Saturday Holiday 
-21-12-2025 Sunday Holiday 
-22-12-2025 Monday 5 
-23-12-2025 Tuesday 6 
-24-12-2025 Wednesday 1 
-25-12-2025 Thursday Holiday 
-26-12-2025 Friday Holiday 
-27-12-2025 Saturday Holiday 
-28-12-2025 Sunday Holiday 
-29-12-2025 Monday Holiday 
-30-12-2025 Tuesday Holiday 
-31-12-2025 Wednesday Holiday 
-01-01-2026 Thursday Holiday 
-02-01-2026 Friday 2 
-03-01-2026 Saturday 3 
-04-01-2026 Sunday Holiday 
-05-01-2026 Monday 4 
-06-01-2026 Tuesday 5 
- 
-07-01-2026 Wednesday 6 
-08-01-2026 Thursday 1 
-09-01-2026 Friday 2 
-10-01-2026 Saturday 3 
-11-01-2026 Sunday Holiday 
-12-01-2026 Monday 4 
-13-01-2026 Tuesday 5 
-14-01-2026 Wednesday Holiday 
-15-01-2026 Thursday Holiday 
-16-01-2026 Friday Holiday 
-17-01-2026 Saturday Holiday 
-18-01-2026 Sunday Holiday 
-19-01-2026 Monday 6 
-20-01-2026 Tuesday 1 
-21-01-2026 Wednesday 2 
-22-01-2026 Thursday 3 
-23-01-2026 Friday 4 
-24-01-2026 Saturday 5 
-25-01-2026 Sunday Holiday 
-26-01-2026 Monday Holiday 
-27-01-2026 Tuesday 6 
-28-01-2026 Wednesday 1 
-29-01-2026 Thursday 2 
-30-01-2026 Friday 3 
-31-01-2026 Saturday 4 
-01-02-2026 Sunday Holiday 
-02-02-2026 Monday 5 
-03-02-2026 Tuesday 6 
-04-02-2026 Wednesday 1 
-05-02-2026 Thursday 2 
-06-02-2026 Friday 3 
-07-02-2026 Saturday Holiday 
-08-02-2026 Sunday Holiday 
-09-02-2026 Monday 4 
-10-02-2026 Tuesday 5 
-11-02-2026 Wednesday 6 
-12-02-2026 Thursday 1 
-13-02-2026 Friday 2 
-14-02-2026 Saturday 3 
-15-02-2026 Sunday Holiday 
-16-02-2026 Monday 4 
-17-02-2026 Tuesday 5 
-18-02-2026 Wednesday Holiday 
- 
-19-02-2026 Thursday 6 
-20-02-2026 Friday 1 
-21-02-2026 Saturday Holiday 
-22-02-2026 Sunday Holiday 
 23-02-2026 Monday 4 
 24-02-2026 Tuesday 5 
 25-02-2026 Wednesday 6 
@@ -316,3 +230,4 @@ No classes.
 No timetable.  
 No Day Order.  
 (HOLIDAY) 
+
