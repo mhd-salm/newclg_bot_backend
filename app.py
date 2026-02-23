@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 import logging
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-
+from datetime import datetime
 
 # ---------------- LOAD .env (LOCAL ONLY) ---------------- #
 
@@ -30,8 +30,6 @@ CORS(app, resources={r"/chat": {"origins": ["https://tnc-ai.in"]}})
 
 MODEL_NAME = "gemini-2.5-flash-lite"
 MAX_OUTPUT_TOKENS = 180
-
-
 
 
 import logging
@@ -198,7 +196,23 @@ def select_relevant_chunks(user_msg, limit=3):
     scored.sort(reverse=True, key=lambda x: x[0])
     return [s[1] for s in scored[:limit]]
 
+# ---------------- DATE CONTEXT HELPER ---------------- #
 
+DATE_KEYWORDS = [
+    "today", "tomorrow",
+    "timetable", "schedule",
+    "day order", "dayorder",
+    "monday", "tuesday",
+    "wednesday", "thursday", "friday"
+]
+
+def needs_date_context(user_msg):
+    msg = user_msg.lower()
+    return any(k in msg for k in DATE_KEYWORDS)
+
+def get_current_date_context():
+    now = datetime.now()
+    return f"Today is {now.strftime('%A')}, {now.strftime('%Y-%m-%d')}."
 # ---------------- CHAT ROUTE ---------------- #
 
 @app.route("/chat", methods=["POST"])
@@ -216,10 +230,16 @@ def chat():
     relevant_chunks = select_relevant_chunks(user_msg)
 
     prompt = [SYSTEM_PROMPT]
+
+    # Inject current date ONLY if needed (token efficient)
+    if needs_date_context(user_msg):
+        prompt.append(get_current_date_context())
+
     if relevant_chunks:
         prompt.append("Relevant college information:")
         for c in relevant_chunks:
             prompt.append(c)
+
     prompt.append(f"User question: {user_msg}")
 
     tried_keys = 0
@@ -264,6 +284,5 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=4000, debug=False)
-
 
 
