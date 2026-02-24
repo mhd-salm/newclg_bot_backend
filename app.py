@@ -81,8 +81,8 @@ def create_app(env: str = None) -> Flask:
     
     CORS(
     app,
-    resources={r"/chat": {"origins": "https://tnc-ai.in"},
-               r"/auth/*": {"origins": "https://tnc-ai.in"}},
+    resources={r"/chat": {"origins": "*"},
+               r"/auth/*": {"origins": "*"}},
     supports_credentials=True
     )
     # ── Auth Blueprint ────────────────────────────────────
@@ -408,3 +408,4 @@ app = create_app()
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 4000))
     app.run(host="0.0.0.0", port=port)
+
