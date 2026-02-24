@@ -15,4 +15,21 @@ class Student(db.Model):
     password_hash = db.Column(db.String(255), nullable=False)
 
     def __repr__(self):
+
         return f"<Student {self.register_number}>"
+        
+class Semester(db.Model):
+    __tablename__ = "semesters"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    name = db.Column(db.String(100), nullable=False)
+
+    start_date = db.Column(db.Date, nullable=False)
+
+    start_day_order = db.Column(db.Integer, nullable=False)
+
+    total_day_orders = db.Column(db.Integer, nullable=False, default=6)
+
+    def __repr__(self):
+        return f"<Semester {self.name}>"
