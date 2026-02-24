@@ -16,7 +16,7 @@ What changed vs the original
 Everything else — Gemini logic, chunk selection, date injection,
 prompt structure, rate limiting, CORS — is IDENTICAL to the original.
 """
-
+from models import Student
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 from database import db
@@ -408,4 +408,5 @@ app = create_app()
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 4000))
     app.run(host="0.0.0.0", port=port)
+
 
