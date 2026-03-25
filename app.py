@@ -12,11 +12,10 @@ What changed vs the original
 4. Student context (department + year) is injected into the prompt
    ONLY for timetable/schedule queries — no extra tokens otherwise.
 5. Database tables are created on first run via create_all().
-6. Day-order questions are answered deterministically from rr.txt
-   (department + year from the logged-in student).
-
-Everything else — Gemini logic, chunk selection, date injection,
-prompt structure, rate limiting, CORS — is IDENTICAL to the original.
+6. Day-order questions are answered deterministically (Postgres calendar_days
+   overrides, else rr.txt date table) with logged-in student dept/year.
+7. Admin JWT role, /admin API, bootstrap admin via ADMIN_BOOTSTRAP_* env.
+8. Timetable text can be stored in Postgres (timetable_documents) for Render.
 
 Token / cost (Gemini free tier, Render):
 - Optional env: GEMINI_CHUNK_MAX_CHARS (default 1400), GEMINI_RETRIEVAL_CHUNKS (default 2),
@@ -33,7 +32,7 @@ from datetime import datetime, date, timedelta
 
 from flask        import Flask, request, jsonify
 from flask_cors   import CORS
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from dotenv       import load_dotenv
 
 import google.generativeai as genai
@@ -41,8 +40,9 @@ import google.generativeai as genai
 # ── Local modules ──────────────────────────────────────────
 from config     import config_map
 from extensions import db, bcrypt, jwt, limiter
-from models     import Student
+from models     import Student, CalendarDay, TimetableDocument
 from auth       import auth_bp
+from admin_routes import admin_bp
 
 
 
@@ -86,17 +86,24 @@ def create_app(env: str = None) -> Flask:
     
     CORS(
     app,
-    resources={r"/chat": {"origins": "*"},
-               r"/auth/*": {"origins": "*"}},
+    resources={
+        r"/chat": {"origins": "*"},
+        r"/auth/*": {"origins": "*"},
+        r"/admin/*": {"origins": "*"},
+    },
     supports_credentials=True
     )
     # ── Auth Blueprint ────────────────────────────────────
     app.register_blueprint(auth_bp, url_prefix="/auth")
+    app.register_blueprint(admin_bp, url_prefix="/admin")
 
     # ── Create DB tables if they don't exist ─────────────
     with app.app_context():
         db.create_all()
         app.logger.info("✅ Database tables verified / created.")
+        _bootstrap_admin_if_needed(app)
+
+    app.extensions["invalidate_content_caches"] = invalidate_content_caches
 
     # ── Register chat route (defined below) ───────────────
     _register_chat_route(app)
@@ -195,21 +202,56 @@ DATA_FILES = {
     "developers": "dev.txt",
 }
 
-def _load_chunks():
-    chunks = []
+# Rebuilt when None (after admin edits or first request)
+_chunks_cache: list[dict] | None = None
+
+
+def _load_timetable_raw_text() -> str | None:
+    """Postgres timetable body if set, else local rr.txt (Render fallback)."""
+    try:
+        doc = TimetableDocument.query.filter_by(slug="timetable").first()
+        if doc and doc.body and doc.body.strip():
+            return doc.body
+    except Exception:
+        pass
+    path = DATA_FILES.get("timetable", "rr.txt")
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    return None
+
+
+def _split_into_chunk_dicts(tag: str, text: str) -> list[dict]:
+    chunks: list[dict] = []
+    parts = re.split(r"\n\s*\n", text)
+    for p in parts:
+        p = p.strip()
+        if len(p) > 40:
+            chunks.append({"tag": tag, "text": p.lower(), "raw": p})
+    return chunks
+
+
+def _build_chunks() -> list[dict]:
+    chunks: list[dict] = []
     for tag, file in DATA_FILES.items():
+        if tag == "timetable":
+            ttext = _load_timetable_raw_text()
+            if ttext:
+                chunks.extend(_split_into_chunk_dicts(tag, ttext))
+            continue
         if not os.path.exists(file):
             continue
         with open(file, "r", encoding="utf-8") as f:
-            text  = f.read()
-            parts = re.split(r"\n\s*\n", text)
-            for p in parts:
-                p = p.strip()
-                if len(p) > 40:
-                    chunks.append({"tag": tag, "text": p.lower(), "raw": p})
+            text = f.read()
+        chunks.extend(_split_into_chunk_dicts(tag, text))
     return chunks
 
-CHUNKS = _load_chunks()
+
+def get_chunks() -> list[dict]:
+    global _chunks_cache
+    if _chunks_cache is None:
+        _chunks_cache = _build_chunks()
+    return _chunks_cache
 
 
 # ══════════════════════════════════════════════════════════
@@ -264,7 +306,7 @@ def _select_relevant_chunks(user_msg: str, limit: int | None = None) -> list[str
         if any(w in user_msg_l for w in words)
     }
 
-    for c in CHUNKS:
+    for c in get_chunks():
         if detected_tags and c["tag"] not in detected_tags:
             continue
         score = sum(1 for k in keywords if k in c["text"])
@@ -366,7 +408,20 @@ def _get_day_order_for_iso(iso: str) -> tuple[str, int | None]:
     """
     Returns (kind, value) where kind is 'number'|'holiday'|'missing'.
     value is 1–6 when kind == 'number'.
+    Postgres calendar_days overrides rr.txt for that date.
     """
+    try:
+        d = date.fromisoformat(iso)
+        row = CalendarDay.query.filter_by(entry_date=d).first()
+        if row:
+            if row.is_holiday:
+                return "holiday", None
+            if row.day_order is not None and 1 <= row.day_order <= 6:
+                return "number", row.day_order
+            return "missing", None
+    except ValueError:
+        pass
+
     cal = _load_day_order_calendar()
     entry = cal.get(iso)
     if entry == "holiday":
@@ -374,6 +429,31 @@ def _get_day_order_for_iso(iso: str) -> tuple[str, int | None]:
     if isinstance(entry, int):
         return "number", entry
     return "missing", None
+
+
+def invalidate_content_caches():
+    global _chunks_cache, _day_order_calendar
+    _chunks_cache = None
+    _day_order_calendar = None
+
+
+def _bootstrap_admin_if_needed(app: Flask):
+    """One-time admin from env ADMIN_BOOTSTRAP_USERNAME / ADMIN_BOOTSTRAP_PASSWORD."""
+    from models import Admin
+
+    u = (os.getenv("ADMIN_BOOTSTRAP_USERNAME") or "").strip()
+    p = os.getenv("ADMIN_BOOTSTRAP_PASSWORD") or ""
+    if not u or not p:
+        return
+    if Admin.query.filter_by(username=u).first():
+        return
+    adm = Admin(
+        username=u,
+        password_hash=bcrypt.generate_password_hash(p).decode("utf-8"),
+    )
+    db.session.add(adm)
+    db.session.commit()
+    app.logger.info("Created bootstrap admin (set ADMIN_BOOTSTRAP_* only for first deploy)")
 
 
 def _weekday_index(name: str) -> int | None:
@@ -468,7 +548,7 @@ def _is_deterministic_day_order_query(user_msg: str) -> bool:
 
 def _format_day_order_reply(student: Student, target: date) -> str:
     """
-    Build a deterministic reply using rr.txt calendar + logged-in student dept/year.
+    Build a deterministic reply using DB calendar override else rr.txt + student dept/year.
     """
     iso = target.strftime("%Y-%m-%d")
     weekday = target.strftime("%A")
@@ -547,11 +627,17 @@ def _register_chat_route(app: Flask):
     def chat():
         global _current_key_index
 
-        # ── Identify caller ───────────────────────────────
+        # ── Identify caller (students only; admins use /admin/*) ─────────
+        claims = get_jwt()
+        if claims.get("role") == "admin":
+            return jsonify({"error": "Admins cannot use student chat. Use the admin dashboard."}), 403
+
         student_id = int(get_jwt_identity())
         student    = db.session.get(Student, student_id)
         if not student:
             return jsonify({"error": "Authenticated user not found."}), 401
+        if not getattr(student, "is_active", True):
+            return jsonify({"error": "Account is disabled."}), 403
 
         # ── Parse request ─────────────────────────────────
         data     = request.json
