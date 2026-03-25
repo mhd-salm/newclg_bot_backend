@@ -12,11 +12,16 @@ What changed vs the original
 4. Student context (department + year) is injected into the prompt
    ONLY for timetable/schedule queries — no extra tokens otherwise.
 5. Database tables are created on first run via create_all().
+6. Day-order questions are answered deterministically from rr.txt
+   (department + year from the logged-in student).
 
 Everything else — Gemini logic, chunk selection, date injection,
 prompt structure, rate limiting, CORS — is IDENTICAL to the original.
+
+Token / cost (Gemini free tier, Render):
+- Optional env: GEMINI_CHUNK_MAX_CHARS (default 1400), GEMINI_RETRIEVAL_CHUNKS (default 2),
+  GEMINI_MAX_OUTPUT_TOKENS (default 180).
 """
-from models import Student
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 from database import db
@@ -24,7 +29,7 @@ import os
 import re
 import sys
 import logging
-from datetime import datetime
+from datetime import datetime, date, timedelta
 
 from flask        import Flask, request, jsonify
 from flask_cors   import CORS
@@ -107,8 +112,22 @@ def create_app(env: str = None) -> Flask:
 _gemini_keys:       list[str] = []
 _current_key_index: int       = 0
 
-MODEL_NAME        = "gemini-2.5-flash-lite"
-MAX_OUTPUT_TOKENS = 180
+MODEL_NAME = "gemini-2.5-flash-lite"
+
+# Input/output caps — override on Render via env to stay within free-tier limits
+def _int_env(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return default
+
+
+GEMINI_CHUNK_MAX_CHARS = _int_env("GEMINI_CHUNK_MAX_CHARS", 1400)
+GEMINI_RETRIEVAL_CHUNKS = _int_env("GEMINI_RETRIEVAL_CHUNKS", 2)
+MAX_OUTPUT_TOKENS = _int_env("GEMINI_MAX_OUTPUT_TOKENS", 180)
 
 
 def _load_gemini_keys(app: Flask):
@@ -155,14 +174,13 @@ def _get_gemini_model():
 
 
 # ══════════════════════════════════════════════════════════
-#  System Prompt  (UNCHANGED)
+#  System Prompt  (short — fewer input tokens)
 # ══════════════════════════════════════════════════════════
 
-SYSTEM_PROMPT = """
-You are the official chatbot of The New College, Chennai.
-When the user says "our college" or "newcollege", they mean The New College, Chennai.
-Answer briefly, clearly, and factually.
-"""
+SYSTEM_PROMPT = (
+    "You are a concise factual assistant for The New College, Chennai. "
+    '"newcollege" means this college. Be brief.'
+)
 
 
 # ══════════════════════════════════════════════════════════
@@ -203,10 +221,12 @@ INTENT_KEYWORDS = {
         "who made", "who created", "developer", "built you",
         "salman", "mustansir", "shahid", "sathya",
     ],
+    # Do not include broad words like "today"/weekdays here — they pull huge rr.txt
+    # chunks and burn tokens on unrelated questions.
     "timetable": [
         "timetable", "time table", "schedule", "period",
-        "day order", "dayorder", "today", "tomorrow",
-        "monday", "tuesday", "wednesday", "thursday", "friday",
+        "day order", "dayorder", "class", "classes", "lecture",
+        "what do i have", "what do we have",
     ],
     "shift1": [
         "shift 1", "shift one", "morning",
@@ -224,8 +244,18 @@ INTENT_KEYWORDS = {
 }
 
 
-def _select_relevant_chunks(user_msg: str, limit: int = 3) -> list[str]:
-    """UNCHANGED chunk-selection logic."""
+def _trim_chunk_for_prompt(raw: str, max_chars: int | None = None) -> str:
+    """Cap long text (e.g. rr.txt) so retrieval stays within free-tier limits."""
+    cap = max_chars if max_chars is not None else GEMINI_CHUNK_MAX_CHARS
+    if len(raw) <= cap:
+        return raw
+    return raw[: cap - 3].rstrip() + "..."
+
+
+def _select_relevant_chunks(user_msg: str, limit: int | None = None) -> list[str]:
+    """Score chunks; return top-N trimmed strings (N from GEMINI_RETRIEVAL_CHUNKS)."""
+    if limit is None:
+        limit = GEMINI_RETRIEVAL_CHUNKS
     user_msg_l    = user_msg.lower()
     keywords      = user_msg_l.split()
     scored        = []
@@ -254,7 +284,7 @@ def _select_relevant_chunks(user_msg: str, limit: int = 3) -> list[str]:
             scored.append((score, c["raw"]))
 
     scored.sort(reverse=True, key=lambda x: x[0])
-    return [s[1] for s in scored[:limit]]
+    return [_trim_chunk_for_prompt(s[1]) for s in scored[:limit]]
 
 
 # ══════════════════════════════════════════════════════════
@@ -273,7 +303,196 @@ def _needs_date_context(user_msg: str) -> bool:
 
 def _get_current_date_context() -> str:
     now = datetime.now()
-    return f"Today is {now.strftime('%A')}, {now.strftime('%Y-%m-%d')}."
+    return f"Date: {now.strftime('%Y-%m-%d')} ({now.strftime('%A')})."
+
+
+# ══════════════════════════════════════════════════════════
+#  Day order calendar (from rr.txt date table — deterministic)
+# ══════════════════════════════════════════════════════════
+
+_DAY_ORDER_ROMAN = {1: "I", 2: "II", 3: "III", 4: "IV", 5: "V", 6: "VI"}
+
+# Parsed once: ISO date string -> "holiday" | int (day order 1–6)
+_day_order_calendar: dict[str, object] | None = None
+
+_RR_DATE_LINE_RE = re.compile(
+    r"^(\d{2})-(\d{2})-(\d{4})\s+(\w+)\s+(.+)$"
+)
+
+
+def _load_day_order_calendar() -> dict[str, object]:
+    """
+    Parse the leading date table in rr.txt (DD-MM-YYYY ... Holiday|number).
+    Cached at module level after first load.
+    """
+    global _day_order_calendar
+    if _day_order_calendar is not None:
+        return _day_order_calendar
+
+    path = DATA_FILES.get("timetable", "rr.txt")
+    cal: dict[str, object] = {}
+
+    if not os.path.exists(path):
+        _day_order_calendar = cal
+        return cal
+
+    with open(path, "r", encoding="utf-8") as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            m = _RR_DATE_LINE_RE.match(line)
+            if not m:
+                continue
+
+            dd, mm, yyyy = m.group(1), m.group(2), m.group(3)
+            rest = m.group(5).strip().strip("`").strip()
+
+            iso = f"{yyyy}-{mm}-{dd}"
+
+            if rest.lower().startswith("holiday"):
+                cal[iso] = "holiday"
+                continue
+
+            num_match = re.search(r"(\d+)", rest)
+            if num_match:
+                n = int(num_match.group(1))
+                if 1 <= n <= 6:
+                    cal[iso] = n
+
+    _day_order_calendar = cal
+    return cal
+
+
+def _get_day_order_for_iso(iso: str) -> tuple[str, int | None]:
+    """
+    Returns (kind, value) where kind is 'number'|'holiday'|'missing'.
+    value is 1–6 when kind == 'number'.
+    """
+    cal = _load_day_order_calendar()
+    entry = cal.get(iso)
+    if entry == "holiday":
+        return "holiday", None
+    if isinstance(entry, int):
+        return "number", entry
+    return "missing", None
+
+
+def _weekday_index(name: str) -> int | None:
+    n = name.lower()[:3]
+    mapping = {
+        "mon": 0,
+        "tue": 1,
+        "wed": 2,
+        "thu": 3,
+        "fri": 4,
+        "sat": 5,
+        "sun": 6,
+    }
+    return mapping.get(n)
+
+
+def _resolve_target_date_for_day_order(user_msg: str) -> date | None:
+    """
+    Resolve which calendar date the user means (today / tomorrow / weekday / DD-MM-YYYY).
+    """
+    m = user_msg.lower()
+    today = datetime.now().date()
+
+    if "today" in m:
+        return today
+    if "tomorrow" in m:
+        return today + timedelta(days=1)
+
+    dm = re.search(r"\b(\d{2})-(\d{2})-(\d{4})\b", user_msg)
+    if dm:
+        d, mo, y = int(dm.group(1)), int(dm.group(2)), int(dm.group(3))
+        try:
+            return date(y, mo, d)
+        except ValueError:
+            return None
+
+    for w in (
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+    ):
+        if w in m:
+            idx = _weekday_index(w)
+            if idx is None:
+                continue
+            delta = (idx - today.weekday()) % 7
+            return today + timedelta(days=delta)
+
+    # Implicit "today" for clear day-order questions without another date
+    if re.search(r"\b(day order|dayorder)\b", m) and not re.search(
+        r"\b\d{2}-\d{2}-\d{4}\b", user_msg
+    ):
+        if (
+            re.search(r"\b(what|which|when|how)\b.*\b(day order|dayorder)\b", m)
+            or re.search(r"\b(day order|dayorder)\b.*\b(what|which|when|how)\b", m)
+            or re.search(r"\b(day order|dayorder)\b.*\b(today|now|current)\b", m)
+            or re.search(r"\b(today|now|current)\b.*\b(day order|dayorder)\b", m)
+        ):
+            return today
+
+    return None
+
+
+def _is_deterministic_day_order_query(user_msg: str) -> bool:
+    """
+    True when the user asks only for day order (not full timetable/schedule).
+    """
+    m = user_msg.lower()
+    if "day order" not in m and "dayorder" not in m:
+        return False
+    # Combined timetable questions: let Gemini use chunks + student context
+    if any(
+        k in m
+        for k in (
+            "timetable",
+            "time table",
+            "schedule",
+            "period",
+            "class",
+            "classes",
+            "what do i have",
+            "lab",
+        )
+    ):
+        return False
+    return _resolve_target_date_for_day_order(user_msg) is not None
+
+
+def _format_day_order_reply(student: Student, target: date) -> str:
+    """
+    Build a deterministic reply using rr.txt calendar + logged-in student dept/year.
+    """
+    iso = target.strftime("%Y-%m-%d")
+    weekday = target.strftime("%A")
+    kind, num = _get_day_order_for_iso(iso)
+
+    dept = (student.department or "").strip() or "your department"
+    yr = student.year
+
+    if kind == "holiday":
+        return (
+            f"For {dept}, Year {yr}: {weekday}, {iso} is a holiday in the published "
+            f"calendar — there is no day order on that date."
+        )
+
+    if kind == "missing":
+        return (
+            f"For {dept}, Year {yr}: there is no day order entry in the calendar data "
+            f"for {weekday}, {iso}. Check with your department for updates."
+        )
+
+    roman = _DAY_ORDER_ROMAN.get(num or 0, str(num))
+    return (
+        f"For {dept}, Year {yr}: {weekday}, {iso} is Day Order {roman} (day order {num})."
+    )
 
 
 # ══════════════════════════════════════════════════════════
@@ -298,18 +517,12 @@ def _needs_student_context(user_msg: str) -> bool:
     return any(k in msg for k in keywords)
 
 def _get_student_context(student: Student) -> str:
-    """
-    One-line compact personalization.
-    Keeps token usage extremely low.
-    """
+    """Minimal line for schedule queries (name/reg no omitted to save tokens)."""
     now = datetime.now()
-
+    dept = (student.department or "").strip() or "—"
     return (
-        f"Student: {student.name}, "
-        f"Dept: {student.department}, "
-        f"Year: {student.year}, "
-        f"RegNo: {student.register_number}. "
-        f"Today: {now.strftime('%A')} ({now.strftime('%Y-%m-%d')})."
+        f"User dept: {dept}; year: {student.year}. "
+        f"Date: {now.strftime('%Y-%m-%d')} ({now.strftime('%A')})."
     )
 
 
@@ -346,6 +559,12 @@ def _register_chat_route(app: Flask):
         if not user_msg:
             return jsonify({"error": "Empty message"}), 400
 
+        # ── Deterministic day order (from rr.txt; uses logged-in dept/year) ───
+        if _is_deterministic_day_order_query(user_msg):
+            target_date = _resolve_target_date_for_day_order(user_msg)
+            if target_date:
+                return jsonify({"reply": _format_day_order_reply(student, target_date)})
+
         # ── Build prompt (ORIGINAL structure preserved) ───
         relevant_chunks = _select_relevant_chunks(user_msg)
         prompt = [SYSTEM_PROMPT.strip()]
@@ -358,11 +577,11 @@ def _register_chat_route(app: Flask):
             prompt.append(_get_current_date_context())
 
         if relevant_chunks:
-            prompt.append("Relevant college information:")
+            prompt.append("Context:")
             for c in relevant_chunks:
                 prompt.append(c)
 
-        prompt.append(f"User question: {user_msg}")
+        prompt.append(f"Q: {user_msg}")
 
         # ── Gemini with key failover (UNCHANGED) ──────────
         tried_keys = 0
