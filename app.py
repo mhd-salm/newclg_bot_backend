@@ -107,12 +107,14 @@ def _get_model():
     raise RuntimeError("All Gemini keys failed")
 
 
+# FIX: Strictly department-aware prompt — never mix departments
 SYSTEM_PROMPT = (
     "You are a concise factual assistant for The New College, Chennai. "
     "'newcollege' means this college. Be brief and accurate. "
     "Always answer based ONLY on the logged-in student's own department and year. "
     "Never mention or mix in data from other departments. "
-    "When a timetable is provided, use ONLY that data — list every period in order, do not invent or omit subjects."
+    "When a timetable is provided, use ONLY that data — list every period in order, "
+    "do not invent or omit subjects."
 )
 
 
@@ -293,22 +295,30 @@ def _rr_timetable():
     return _rr_tt
 
 
+# FIX: Added `department` parameter — queries DB filtered by dept, 
+#      falls back to rr.txt ONLY for B.Sc AI students
 def _timetable_str(department, year, day_order):
-    # Try DB first, filtered by department
+    # Try DB first, filtered strictly by the student's own department
     rows = TimetableEntry.query.filter_by(
         department=department, year=year, day_order=day_order
     ).order_by(TimetableEntry.period).all()
+
     if rows:
-        lines = [f"{department} Year {year} — Day Order {ROMAN.get(day_order,day_order)} timetable:"]
-        for r in rows: lines.append(f"  Period {r.period}: {r.subject}")
+        lines = [f"{department} Year {year} — Day Order {ROMAN.get(day_order, day_order)} timetable:"]
+        for r in rows:
+            lines.append(f"  Period {r.period}: {r.subject}")
         return "\n".join(lines)
-    # Fallback to rr.txt — only works for B.Sc AI
+
+    # Fallback to rr.txt — only valid for B.Sc AI (that's what rr.txt contains)
     if department == "B.Sc AI":
         periods = _rr_timetable().get((year, day_order))
         if periods:
-            lines = [f"{department} Year {year} — Day Order {ROMAN.get(day_order,day_order)} timetable:"]
-            for p,s in sorted(periods): lines.append(f"  Period {p}: {s}")
+            lines = [f"{department} Year {year} — Day Order {ROMAN.get(day_order, day_order)} timetable:"]
+            for p, s in sorted(periods):
+                lines.append(f"  Period {p}: {s}")
             return "\n".join(lines)
+
+    # No data found for this department
     return None
 
 
@@ -321,12 +331,15 @@ _DT  = ["today","tomorrow","timetable","schedule","day order","dayorder","monday
 
 def _is_tt(msg): return any(k in msg.lower() for k in _TT)
 def _needs_dt(msg): return any(k in msg.lower() for k in _DT)
+
+# FIX: Include student name so bot knows who the user is, without wasting tokens
 def _sctx(s):
     now = datetime.now()
     return (
         f"Student: {s.name}, Dept: {(s.department or '').strip() or '—'}, "
         f"Year: {s.year}. Today: {now.strftime('%Y-%m-%d')} ({now.strftime('%A')})."
     )
+
 
 # ══════════════════════════════════════════════════════════════
 #  Chat route
@@ -362,6 +375,7 @@ def _register_chat_route(app):
             target = _target_date(user_msg) or datetime.now().date()
             iso = target.isoformat(); kind, do_num = _day_order(iso)
             weekday = target.strftime("%A")
+            # FIX: _sctx now includes student name
             prompt.append(_sctx(student))
 
             if kind == "holiday":
@@ -371,11 +385,17 @@ def _register_chat_route(app):
                     if ov and ov.reason: reason = f" ({ov.reason})"
                 except: pass
                 prompt.append(f"{weekday} {iso} is a holiday{reason}. No classes.")
-             elif kind == "number":
+            elif kind == "number":
                 prompt.append(f"{weekday} {iso} is Day Order {ROMAN.get(do_num,do_num)}.")
+                # FIX: Pass student's department so only their timetable is fetched
                 dept = (student.department or "").strip()
                 tt = _timetable_str(dept, student.year, do_num)
-                prompt.append(tt if tt else f"No timetable data for {dept} Year {student.year}, Day Order {ROMAN.get(do_num,do_num)}.")
+                prompt.append(
+                    tt if tt else
+                    f"No timetable data found for {dept} Year {student.year}, "
+                    f"Day Order {ROMAN.get(do_num, do_num)}. "
+                    f"Ask your admin to add this department's timetable."
+                )
             else:
                 prompt.append(f"No day order found for {weekday} {iso}.")
         else:
