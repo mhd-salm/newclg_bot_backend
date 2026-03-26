@@ -3,8 +3,16 @@ services:
     name: newcollege-ai
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: python app.py
+    startCommand: gunicorn app:app
     plan: free
     envVars:
-      - key: GEMINI_API_KEY
+      - key: DATABASE_URL
         sync: false
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: GEMINI_KEYS
+        sync: false
+      - key: ADMIN_SECRET_KEY
+        sync: false
+      - key: FLASK_ENV
+        value: production

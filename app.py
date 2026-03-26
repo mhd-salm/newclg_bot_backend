@@ -1,11 +1,5 @@
 """
 app.py  —  Campus AI backend
-─────────────────────────────
-Core fix: _load_rr_timetable() pre-parses rr.txt into
-  { (year_int, day_order_int): [(period, subject), ...] }
-When a timetable query arrives, we resolve the day order for the
-requested date and inject ONLY the matching periods into the prompt.
-Gemini never has to guess which block to read.
 """
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -35,10 +29,18 @@ def create_app(env=None):
     env = env or os.getenv("FLASK_ENV", "default")
     app = Flask(__name__)
     app.config.from_object(config_map[env])
-    app.config["SQLALCHEMY_DATABASE_URI"]    = os.getenv("DATABASE_URL")
+
+    # ── FIX: Render gives postgres://, SQLAlchemy needs postgresql:// ──
+    db_url = os.getenv("DATABASE_URL", "")
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+    if not db_url:
+        raise RuntimeError("DATABASE_URL environment variable is not set.")
+
+    app.config["SQLALCHEMY_DATABASE_URI"]        = db_url
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-    app.config["JWT_SECRET_KEY"]             = os.getenv("JWT_SECRET_KEY")
-    app.config["GEMINI_KEYS"]                = os.getenv("GEMINI_KEYS")
+    app.config["JWT_SECRET_KEY"]                 = os.getenv("JWT_SECRET_KEY")
+    app.config["GEMINI_KEYS"]                    = os.getenv("GEMINI_KEYS")
 
     logging.basicConfig(
         level=logging.INFO,
@@ -247,10 +249,7 @@ def _do_reply(student, target):
 
 
 # ══════════════════════════════════════════════════════════════
-#  Timetable extraction  ← THE FIX
-#
-#  Pre-parse rr.txt into: {(year, day_order): [(period, subject)]}
-#  Then inject only the exact matching block into the prompt.
+#  Timetable extraction
 # ══════════════════════════════════════════════════════════════
 
 _rr_tt = None
@@ -265,7 +264,6 @@ def _rr_timetable():
     with open(path,"r",encoding="utf-8") as f: content = f.read()
     rom = {"I":1,"II":2,"III":3,"IV":4,"V":5,"VI":6}
 
-    # Split on "DAY ORDER <ROMAN>" — capturing group keeps delimiters
     parts = re.split(r"DAY ORDER\s+(VI|V|IV|III|II|I)\b", content, flags=re.IGNORECASE)
     i = 1
     while i+1 < len(parts):
@@ -273,7 +271,6 @@ def _rr_timetable():
         block  = parts[i+1]; i += 2
         if not do_num: continue
 
-        # Year sub-sections: "I B.Sc. AI:", "II B.Sc. AI:", "III B.Sc. AI:"
         yr_parts = re.split(r"\b(I{1,3})\s+B\.?Sc\.?\s*\.?\s*AI\s*:", block, flags=re.IGNORECASE)
         j = 1
         while j+1 < len(yr_parts):
@@ -287,7 +284,6 @@ def _rr_timetable():
                 pm = re.match(r"^([1-5])[\s:.]+(.+)", line)
                 if pm:
                     subj = pm.group(2).strip()
-                    # skip lines that look like a new year header bleed
                     if subj and not re.match(r"^(I{1,3})\s+B", subj):
                         periods.append((int(pm.group(1)), subj))
             if periods:
@@ -297,14 +293,11 @@ def _rr_timetable():
 
 
 def _timetable_str(year, day_order):
-    """Returns formatted timetable string, or None if nothing found."""
-    # 1. DB
     rows = TimetableEntry.query.filter_by(year=year, day_order=day_order).order_by(TimetableEntry.period).all()
     if rows:
         lines = [f"Year {year} — Day Order {ROMAN.get(day_order,day_order)} timetable (admin):"]
         for r in rows: lines.append(f"  Period {r.period}: {r.subject}")
         return "\n".join(lines)
-    # 2. rr.txt
     periods = _rr_timetable().get((year, day_order))
     if not periods: return None
     lines = [f"Year {year} — Day Order {ROMAN.get(day_order,day_order)} timetable:"]
@@ -331,7 +324,7 @@ def _sctx(s): now=datetime.now(); return f"Dept: {(s.department or '').strip() o
 def _register_chat_route(app):
     with app.app_context():
         _load_keys(app)
-        _rr_timetable()   # pre-parse on startup
+        _rr_timetable()
         _rr_cal()
 
     @app.route("/chat", methods=["POST"])
@@ -348,7 +341,6 @@ def _register_chat_route(app):
         user_msg = (request.json or {}).get("message","").strip()
         if not user_msg: return jsonify({"error": "Empty message"}), 400
 
-        # Fast path: pure day-order query
         if _is_do_only(user_msg):
             t = _target_date(user_msg)
             if t: return jsonify({"reply": _do_reply(student, t)})
