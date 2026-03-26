@@ -29,17 +29,12 @@ class Admin(db.Model):
 
 
 class DayOrderOverride(db.Model):
-    """
-    Overrides the day order for a specific calendar date.
-    day_order = 0  → treat as holiday (no classes)
-    day_order = 1–6 → use this day order instead of the default from rr.txt
-    """
     __tablename__ = "day_order_overrides"
 
     id = db.Column(db.Integer, primary_key=True)
-    date = db.Column(db.Date, unique=True, nullable=False)          # e.g. 2026-03-25
-    day_order = db.Column(db.Integer, nullable=False)               # 0 = holiday, 1-6
-    reason = db.Column(db.String(255), nullable=True)               # e.g. "Unexpected holiday"
+    date = db.Column(db.Date, unique=True, nullable=False)
+    day_order = db.Column(db.Integer, nullable=False)
+    reason = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -58,31 +53,34 @@ class DayOrderOverride(db.Model):
 
 class TimetableEntry(db.Model):
     """
-    Stores timetable periods per year, day_order, and period number.
-    year: 1, 2, or 3
+    Stores timetable periods per department, year, day_order, and period number.
+    department: e.g. "B.Sc AI", "B.Com", "B.Sc CS"
+    year: 1, 2, or 3 (or more)
     day_order: 1–6
-    period: 1–5
+    period: 1–N (default 5)
     subject: e.g. "Python Theory (JM)"
     """
     __tablename__ = "timetable_entries"
 
     id = db.Column(db.Integer, primary_key=True)
-    year = db.Column(db.Integer, nullable=False)          # 1, 2, 3
-    day_order = db.Column(db.Integer, nullable=False)     # 1–6
-    period = db.Column(db.Integer, nullable=False)        # 1–5
+    department = db.Column(db.String(100), nullable=False, default="B.Sc AI")
+    year = db.Column(db.Integer, nullable=False)
+    day_order = db.Column(db.Integer, nullable=False)
+    period = db.Column(db.Integer, nullable=False)
     subject = db.Column(db.String(255), nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     __table_args__ = (
-        db.UniqueConstraint('year', 'day_order', 'period', name='uq_timetable_slot'),
+        db.UniqueConstraint('department', 'year', 'day_order', 'period', name='uq_timetable_slot'),
     )
 
     def __repr__(self):
-        return f"<TimetableEntry Y{self.year} DO{self.day_order} P{self.period}: {self.subject}>"
+        return f"<TimetableEntry {self.department} Y{self.year} DO{self.day_order} P{self.period}: {self.subject}>"
 
     def to_dict(self):
         return {
             "id": self.id,
+            "department": self.department,
             "year": self.year,
             "day_order": self.day_order,
             "period": self.period,
@@ -91,9 +89,6 @@ class TimetableEntry(db.Model):
 
 
 class Announcement(db.Model):
-    """
-    Admin-managed announcements shown to students on login / chatbot welcome.
-    """
     __tablename__ = "announcements"
 
     id = db.Column(db.Integer, primary_key=True)
