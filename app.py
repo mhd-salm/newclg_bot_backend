@@ -422,6 +422,24 @@ def _register_chat_route(app):
 
         return jsonify({"error": "All Gemini API keys rate-limited. Try again later."}), 429
 
+# ══════════════════════════════════════════════════════════════
+#  Public API: List Departments
+# ══════════════════════════════════════════════════════════════
+
+@app.route('/departments', methods=['GET'])
+def get_departments():
+    """
+    Public endpoint to fetch available departments for signup dropdown.
+    Returns list of distinct departments from TimetableEntry table.
+    """
+    try:
+        rows = db.session.query(TimetableEntry.department).distinct().order_by(TimetableEntry.department).all()
+        departments = [r[0] for r in rows if r[0]]  # Filter out None values
+        return jsonify(departments), 200
+    except Exception as e:
+        app.logger.error(f"Error fetching departments: {str(e)}")
+        return jsonify({"error": "Failed to fetch departments"}), 500
+
 
 app = create_app()
 
