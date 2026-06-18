@@ -178,7 +178,7 @@ def _load_chunks():
                 if len(p) > 40:
                     chunks.append({"tag": tag, "text": p.lower(), "raw": p})
             lines = [line.strip() for line in content.splitlines()]
-            hot_terms = ("artificial intelligence", "head", "hod", "developer", "project development team")
+            hot_terms = ("artificial intelligence", "head", "hod", "developer", "project development team", "founded", "establishment", "exam", "examination", "ese", "cia")
             for idx, line in enumerate(lines):
                 low = line.lower()
                 if any(term in low for term in hot_terms):
@@ -193,7 +193,7 @@ INTENT = {
     "developers": ["who made","who created","developer","developers","developed","built you","team","salman","mustansir","shahid","sathya","sathyapriyan"],
     "shift1":     ["shift 1","shift one","morning","fee","fees","fee structure","how much"],
     "shift2":     ["shift 2","shift two","evening","fee","fees","fee structure","how much"],
-    "college":    ["college","new college","newcollege","about","history","principal","address","contact","department","course","hod","h.o.d","head","head of department","artificial intelligence","bsc ai","b.sc ai","ai"],
+    "college":    ["college","new college","newcollege","about","history","principal","address","contact","department","course","hod","h.o.d","head","head of department","artificial intelligence","bsc ai","b.sc ai","ai","founded","established","started","made","exam","examination","ese","cia","calendar","almanac"],
 }
 
 def _trim(raw):
@@ -206,6 +206,9 @@ ALIASES = {
     "b.sc": ["bsc", "bachelor"],
     "ai": ["artificial intelligence"],
     "developers": ["developer", "developed", "project development team"],
+    "exam": ["examination", "ese", "end semester", "theory exam", "practical exam"],
+    "exams": ["examination", "ese", "end semester", "theory exam", "practical exam"],
+    "made": ["founded", "established", "started"],
 }
 
 DEPARTMENT_HEADS = {
@@ -243,6 +246,31 @@ def _query_terms(user_msg):
 
 def _direct_answer(user_msg):
     m = user_msg.lower()
+    if any(k in m for k in ("when was", "when did", "what year")) and any(k in m for k in ("new college", "college made", "college founded", "college established", "college started")):
+        return (
+            "The New College was established in 1951. The handbook says it started operations "
+            "on 2 July 1951 after securing affiliation from the University of Madras."
+        )
+
+    if "next" in m and any(k in m for k in ("exam", "examination", "ese", "test")):
+        today = datetime.now().date()
+        exam_events = [
+            (date(2026, 3, 23), "Even Semester Practical Exam begins"),
+            (date(2026, 3, 25), "ESE Practical begins"),
+            (date(2026, 4, 7), "Even Semester Theory Exam / ESE Part IV begins"),
+            (date(2026, 4, 11), "ESE Part I, II and III begins"),
+            (date(2026, 4, 29), "April 2026 End Semester Exam ends"),
+        ]
+        upcoming = [(d, label) for d, label in exam_events if d >= today]
+        if upcoming:
+            d, label = upcoming[0]
+            return f"According to the 2025-26 academic schedule, the next listed exam event is: {label} on {d.strftime('%d.%m.%Y')}."
+        return (
+            "In the 2025-26 academic schedule, the listed exam events are already over: "
+            "practical exams began in March 2026, theory/ESE began in April 2026, and the April 2026 "
+            "End Semester Exam ended on 29.04.2026. The next exam date after that is not available in the provided data."
+        )
+
     asks_hod = any(k in m for k in ("hod", "h.o.d", "head of department", "head for", "head of"))
     if asks_hod:
         for dept, head in sorted(DEPARTMENT_HEADS.items(), key=lambda item: len(item[0]), reverse=True):
