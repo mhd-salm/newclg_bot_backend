@@ -118,9 +118,9 @@ def _int_env(name, default):
     try: return max(1, int(os.getenv(name, "")))
     except: return default
 
-CHUNK_MAX   = _int_env("GEMINI_CHUNK_MAX_CHARS",   1400)
-CHUNK_LIMIT = _int_env("GEMINI_RETRIEVAL_CHUNKS",  2)
-MAX_TOKENS  = _int_env("GEMINI_MAX_OUTPUT_TOKENS", 180)
+CHUNK_MAX   = _int_env("GEMINI_CHUNK_MAX_CHARS",   1800)
+CHUNK_LIMIT = _int_env("GEMINI_RETRIEVAL_CHUNKS",  4)
+MAX_TOKENS  = _int_env("GEMINI_MAX_OUTPUT_TOKENS", 260)
 
 
 def _load_keys(app):
@@ -148,6 +148,8 @@ SYSTEM_PROMPT = (
     "'newcollege' means this college. Be brief and accurate. "
     "Always answer based ONLY on the student's own department and year. "
     "Never mix in data from other departments. "
+    "Use every relevant fact in the provided context before saying information is unavailable. "
+    "For direct factual questions, answer directly first, then add one short supporting detail if useful. "
     "When a timetable is provided, use ONLY that data — list every period in order, "
     "do not invent or omit subjects."
 )
@@ -170,35 +172,96 @@ def _load_chunks():
     for tag, file in DATA_FILES.items():
         if not os.path.exists(file): continue
         with open(file, "r", encoding="utf-8") as f:
-            for p in re.split(r"\n\s*\n", f.read()):
+            content = f.read()
+            for p in re.split(r"\n\s*\n", content):
                 p = p.strip()
                 if len(p) > 40:
                     chunks.append({"tag": tag, "text": p.lower(), "raw": p})
+            lines = [line.strip() for line in content.splitlines()]
+            hot_terms = ("artificial intelligence", "head", "hod", "developer", "project development team")
+            for idx, line in enumerate(lines):
+                low = line.lower()
+                if any(term in low for term in hot_terms):
+                    window = "\n".join(l for l in lines[max(0, idx-6):idx+7] if l)
+                    if len(window) > 40:
+                        chunks.append({"tag": tag, "text": window.lower(), "raw": window})
     return chunks
 
 CHUNKS = _load_chunks()
 
 INTENT = {
-    "developers": ["who made","who created","developer","built you","salman","mustansir","shahid","sathya"],
+    "developers": ["who made","who created","developer","developers","developed","built you","team","salman","mustansir","shahid","sathya","sathyapriyan"],
     "shift1":     ["shift 1","shift one","morning","fee","fees","fee structure","how much"],
     "shift2":     ["shift 2","shift two","evening","fee","fees","fee structure","how much"],
-    "college":    ["college","new college","newcollege","about","history","principal","address","contact","department","course"],
+    "college":    ["college","new college","newcollege","about","history","principal","address","contact","department","course","hod","h.o.d","head","head of department","artificial intelligence","bsc ai","b.sc ai","ai"],
 }
 
 def _trim(raw):
     return raw if len(raw) <= CHUNK_MAX else raw[:CHUNK_MAX-3].rstrip()+"..."
 
+ALIASES = {
+    "hod": ["head", "head of department", "chairperson"],
+    "h.o.d": ["head", "head of department", "chairperson"],
+    "bsc": ["b.sc", "bachelor"],
+    "b.sc": ["bsc", "bachelor"],
+    "ai": ["artificial intelligence"],
+    "developers": ["developer", "developed", "project development team"],
+}
+
+def _query_terms(user_msg):
+    terms = set(re.findall(r"[a-z0-9.]+", user_msg.lower()))
+    phrase_terms = set()
+    normalized = user_msg.lower()
+    for key, values in ALIASES.items():
+        if key in normalized:
+            phrase_terms.update(values)
+    if "artificial intelligence" in normalized:
+        phrase_terms.add("ai")
+    if "head of department" in normalized:
+        phrase_terms.update(("hod", "head"))
+    return terms, phrase_terms
+
+def _direct_answer(user_msg):
+    m = user_msg.lower()
+    asks_hod = any(k in m for k in ("hod", "h.o.d", "head of department", "head for"))
+    asks_ai = any(k in m for k in ("bsc ai", "b.sc ai", "artificial intelligence", "ai"))
+    if asks_hod and asks_ai:
+        return (
+            "For B.Sc. Artificial Intelligence, the college data lists Dr. J. Adam Kani "
+            "for Artificial Intelligence in the Academic Council / Board of Studies section."
+        )
+
+    if any(k in m for k in ("who are the developers", "who developed", "who made", "who created", "developer")):
+        return (
+            "The project development team is Salman, Mustansir, Sathyapriyan, and Shahid. "
+            "Salman handled lead/backend development, Mustansir built the frontend, "
+            "Sathyapriyan managed information and data, and Shahid handled testing and QA."
+        )
+
+    return None
+
 def _chunks_for(user_msg):
-    ul = user_msg.lower(); kw = ul.split()
+    ul = user_msg.lower()
+    kw, phrase_terms = _query_terms(user_msg)
     detected = {t for t, ws in INTENT.items() if any(w in ul for w in ws)}
     scored = []
     for c in CHUNKS:
         if c["tag"] == "timetable": continue
         if detected and c["tag"] not in detected: continue
-        sc = sum(1 for k in kw if k in c["text"])
-        if any(w in ul for w in INTENT.get(c["tag"], [])): sc += 50
-        if c["tag"] == "developers" and any(k in ul for k in INTENT["developers"]): sc += 100
-        if sc > 0: scored.append((sc, c["raw"]))
+        text_l = c["text"]
+        raw_l = c["raw"].lower()
+        sc = sum(2 for k in kw if len(k) > 2 and k in text_l)
+        sc += sum(8 for p in phrase_terms if p in text_l)
+        for phrase in ("artificial intelligence", "head of department", "project development team"):
+            if phrase in ul and phrase in raw_l:
+                sc += 25
+        if any(w in ul for w in INTENT.get(c["tag"], [])): sc += 20
+        if c["tag"] == "developers" and any(k in ul for k in INTENT["developers"]):
+            sc += 80
+        if "hod" in ul and "artificial intelligence" in raw_l:
+            sc += 80
+        if sc > 0:
+            scored.append((sc, c["raw"]))
     scored.sort(reverse=True, key=lambda x: x[0])
     return [_trim(s[1]) for s in scored[:CHUNK_LIMIT]]
 
@@ -396,6 +459,10 @@ def _register_chat_route(app):
         data = request.json or {}
         user_msg = data.get("message", "").strip()
         if not user_msg: return jsonify({"error": "Empty message"}), 400
+
+        direct = _direct_answer(user_msg)
+        if direct:
+            return jsonify({"reply": direct})
 
         name = data.get("name", "").strip() or "Guest"
         department = data.get("department", "").strip()
