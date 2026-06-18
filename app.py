@@ -208,6 +208,26 @@ ALIASES = {
     "developers": ["developer", "developed", "project development team"],
 }
 
+DEPARTMENT_HEADS = {
+    "artificial intelligence": "Dr. J. Adam Kani",
+    "bsc ai": "Dr. J. Adam Kani",
+    "b.sc ai": "Dr. J. Adam Kani",
+    "computer science": "Dr. P. Hakkim Divan Mydeen",
+    "bsc computer science": "Dr. P. Hakkim Divan Mydeen",
+    "b.sc computer science": "Dr. P. Hakkim Divan Mydeen",
+    "mathematics": "Dr. V. Kamal Nasir",
+    "information technology": "Mr. K. Syed Mohamed Bukari",
+    "computer applications": "Mr. A.S. Mohamed Hamsa",
+    "data science": "Dr. N. Manikandan",
+    "commerce": "Dr. S. Tameem Sharief",
+    "physics": "Dr. P.A. Abdullah Mahaboob",
+    "chemistry": "Dr. M.A. Mohamed Musthafa",
+    "zoology": "Dr. M. Asrar Sheriff",
+    "botany": "Dr. Amzad Basha Kolar",
+    "biotechnology": "Mr. M.A. Imran Musthafa",
+    "criminology": "Dr. M. Faisal",
+}
+
 def _query_terms(user_msg):
     terms = set(re.findall(r"[a-z0-9.]+", user_msg.lower()))
     phrase_terms = set()
@@ -223,7 +243,18 @@ def _query_terms(user_msg):
 
 def _direct_answer(user_msg):
     m = user_msg.lower()
-    asks_hod = any(k in m for k in ("hod", "h.o.d", "head of department", "head for"))
+    asks_hod = any(k in m for k in ("hod", "h.o.d", "head of department", "head for", "head of"))
+    if asks_hod:
+        for dept, head in sorted(DEPARTMENT_HEADS.items(), key=lambda item: len(item[0]), reverse=True):
+            if dept in m:
+                label = "B.Sc. AI" if dept in ("bsc ai", "b.sc ai") else dept.title()
+                if dept == "artificial intelligence":
+                    label = "Artificial Intelligence"
+                return (
+                    f"The Head/HOD listed for {label} is {head}. "
+                    "This is taken from the college handbook's Academic Council / Board of Studies entries."
+                )
+
     asks_ai = any(k in m for k in ("bsc ai", "b.sc ai", "artificial intelligence", "ai"))
     if asks_hod and asks_ai:
         return (
