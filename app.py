@@ -9,14 +9,12 @@ from datetime import datetime, date, timedelta
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from dotenv import load_dotenv
 import google.generativeai as genai
 
 from config     import config_map
-from extensions import db, bcrypt, jwt, limiter
-from models     import Student, DayOrderOverride, TimetableEntry, Announcement
-from auth       import auth_bp
+from extensions import db, limiter
+from models     import DayOrderOverride, TimetableEntry, Announcement
 from admin      import admin_bp
 
 
@@ -39,7 +37,6 @@ def create_app(env=None):
 
     app.config["SQLALCHEMY_DATABASE_URI"]        = db_url
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-    app.config["JWT_SECRET_KEY"]                 = os.getenv("JWT_SECRET_KEY")
     app.config["GEMINI_KEYS"]                    = os.getenv("GEMINI_KEYS")
 
     logging.basicConfig(
@@ -50,17 +47,13 @@ def create_app(env=None):
     app.logger.setLevel(logging.INFO)
 
     db.init_app(app)
-    bcrypt.init_app(app)
-    jwt.init_app(app)
     limiter.init_app(app)
 
     CORS(app, resources={
         r"/chat":    {"origins": "*"},
-        r"/auth/*":  {"origins": "*"},
         r"/admin/*": {"origins": "*"},
-    }, supports_credentials=True)
+    })
 
-    app.register_blueprint(auth_bp,  url_prefix="/auth")
     app.register_blueprint(admin_bp, url_prefix="/admin")
 
     with app.app_context():
@@ -68,6 +61,7 @@ def create_app(env=None):
         app.logger.info("Database tables verified / created.")
 
     _register_chat_route(app)
+    _register_departments_route(app)
     return app
 
 
@@ -111,8 +105,8 @@ def _get_model():
 SYSTEM_PROMPT = (
     "You are a concise factual assistant for The New College, Chennai. "
     "'newcollege' means this college. Be brief and accurate. "
-    "Always answer based ONLY on the logged-in student's own department and year. "
-    "Never mention or mix in data from other departments. "
+    "Always answer based ONLY on the student's own department and year. "
+    "Never mix in data from other departments. "
     "When a timetable is provided, use ONLY that data — list every period in order, "
     "do not invent or omit subjects."
 )
@@ -238,17 +232,17 @@ def _is_do_only(msg):
     return True
 
 
-def _do_reply(student, target):
+def _do_reply(name, department, year, target):
     iso = target.isoformat(); kind,num = _day_order(iso)
-    dept = (student.department or "").strip() or "your department"
+    dept = (department or "").strip() or "your department"
     weekday = target.strftime("%A"); reason = ""
     try:
         ov = DayOrderOverride.query.filter_by(date=target).first()
         if ov and ov.reason: reason = f" ({ov.reason})"
     except: pass
-    if kind=="holiday": return f"For {dept}, Year {student.year}: {weekday} {iso} is a holiday{reason} — no classes."
-    if kind=="missing": return f"For {dept}, Year {student.year}: no day order found for {weekday} {iso}."
-    return f"For {dept}, Year {student.year}: {weekday} {iso} is Day Order {ROMAN.get(num,str(num))}{reason}."
+    if kind=="holiday": return f"For {dept}, Year {year or '—'}: {weekday} {iso} is a holiday{reason} — no classes."
+    if kind=="missing": return f"For {dept}, Year {year or '—'}: no day order found for {weekday} {iso}."
+    return f"For {dept}, Year {year or '—'}: {weekday} {iso} is Day Order {ROMAN.get(num,str(num))}{reason}."
 
 
 # ══════════════════════════════════════════════════════════════
@@ -333,11 +327,11 @@ def _is_tt(msg): return any(k in msg.lower() for k in _TT)
 def _needs_dt(msg): return any(k in msg.lower() for k in _DT)
 
 # FIX: Include student name so bot knows who the user is, without wasting tokens
-def _sctx(s):
+def _sctx(name, department, year):
     now = datetime.now()
     return (
-        f"Student: {s.name}, Dept: {(s.department or '').strip() or '—'}, "
-        f"Year: {s.year}. Today: {now.strftime('%Y-%m-%d')} ({now.strftime('%A')})."
+        f"Student: {name or 'Guest'}, Dept: {(department or '').strip() or '—'}, "
+        f"Year: {year or '—'}. Today: {now.strftime('%Y-%m-%d')} ({now.strftime('%A')})."
     )
 
 
@@ -352,22 +346,25 @@ def _register_chat_route(app):
         _rr_cal()
 
     @app.route("/chat", methods=["POST"])
-    @jwt_required()
     @limiter.limit("15 per minute")
     def chat():
         global _cur_key
-        if get_jwt().get("role") == "admin":
-            return jsonify({"error": "Admins cannot use the student chat endpoint"}), 403
-
-        student = db.session.get(Student, int(get_jwt_identity()))
-        if not student: return jsonify({"error": "User not found"}), 401
-
-        user_msg = (request.json or {}).get("message","").strip()
+        data = request.json or {}
+        user_msg = data.get("message", "").strip()
         if not user_msg: return jsonify({"error": "Empty message"}), 400
+
+        name = data.get("name", "").strip() or "Guest"
+        department = data.get("department", "").strip()
+        year = data.get("year")
+        if year is not None:
+            try:
+                year = int(year)
+            except ValueError:
+                pass
 
         if _is_do_only(user_msg):
             t = _target_date(user_msg)
-            if t: return jsonify({"reply": _do_reply(student, t)})
+            if t: return jsonify({"reply": _do_reply(name, department, year, t)})
 
         prompt = [SYSTEM_PROMPT]
 
@@ -375,8 +372,7 @@ def _register_chat_route(app):
             target = _target_date(user_msg) or datetime.now().date()
             iso = target.isoformat(); kind, do_num = _day_order(iso)
             weekday = target.strftime("%A")
-            # FIX: _sctx now includes student name
-            prompt.append(_sctx(student))
+            prompt.append(_sctx(name, department, year))
 
             if kind == "holiday":
                 reason = ""
@@ -387,21 +383,26 @@ def _register_chat_route(app):
                 prompt.append(f"{weekday} {iso} is a holiday{reason}. No classes.")
             elif kind == "number":
                 prompt.append(f"{weekday} {iso} is Day Order {ROMAN.get(do_num,do_num)}.")
-                # FIX: Pass student's department so only their timetable is fetched
-                dept = (student.department or "").strip()
-                tt = _timetable_str(dept, student.year, do_num)
-                prompt.append(
-                    tt if tt else
-                    f"No timetable data found for {dept} Year {student.year}, "
-                    f"Day Order {ROMAN.get(do_num, do_num)}. "
-                    f"Ask your admin to add this department's timetable."
-                )
+                if department and year:
+                    tt = _timetable_str(department, year, do_num)
+                    prompt.append(
+                        tt if tt else
+                        f"No timetable data found for {department} Year {year}, "
+                        f"Day Order {ROMAN.get(do_num, do_num)}. "
+                        f"Ask your admin to add this department's timetable."
+                    )
+                else:
+                    prompt.append("Timetable cannot be determined because department and/or year were not specified by the user.")
             else:
                 prompt.append(f"No day order found for {weekday} {iso}.")
         else:
             if _needs_dt(user_msg):
                 now = datetime.now()
                 prompt.append(f"Today: {now.strftime('%Y-%m-%d')} ({now.strftime('%A')}).")
+            
+            if department and year:
+                prompt.append(_sctx(name, department, year))
+
             chunks = _chunks_for(user_msg)
             if chunks:
                 prompt.append("Context:")
@@ -422,23 +423,20 @@ def _register_chat_route(app):
 
         return jsonify({"error": "All Gemini API keys rate-limited. Try again later."}), 429
 
-# ══════════════════════════════════════════════════════════════
-#  Public API: List Departments
-# ══════════════════════════════════════════════════════════════
-
-@app.route('/departments', methods=['GET'])
-def get_departments():
-    """
-    Public endpoint to fetch available departments for signup dropdown.
-    Returns list of distinct departments from TimetableEntry table.
-    """
-    try:
-        rows = db.session.query(TimetableEntry.department).distinct().order_by(TimetableEntry.department).all()
-        departments = [r[0] for r in rows if r[0]]  # Filter out None values
-        return jsonify(departments), 200
-    except Exception as e:
-        app.logger.error(f"Error fetching departments: {str(e)}")
-        return jsonify({"error": "Failed to fetch departments"}), 500
+def _register_departments_route(app):
+    @app.route('/departments', methods=['GET'])
+    def get_departments():
+        """
+        Public endpoint to fetch available departments.
+        Returns list of distinct departments from TimetableEntry table.
+        """
+        try:
+            rows = db.session.query(TimetableEntry.department).distinct().order_by(TimetableEntry.department).all()
+            departments = [r[0] for r in rows if r[0]]  # Filter out None values
+            return jsonify(departments), 200
+        except Exception as e:
+            app.logger.error(f"Error fetching departments: {str(e)}")
+            return jsonify({"error": "Failed to fetch departments"}), 500
 
 
 app = create_app()

@@ -1,9 +1,7 @@
 """
-admin.py — Admin-only API blueprint.
+admin.py — API blueprint for day orders, timetables, and announcements.
 
 Routes:
-  GET    /admin/students                  – list all students
-  DELETE /admin/students/<id>             – delete a student
 
   GET    /admin/day-orders                – list all overrides
   POST   /admin/day-orders                – create / update an override
@@ -19,13 +17,12 @@ Routes:
   POST   /admin/announcements             – create announcement
   PUT    /admin/announcements/<id>        – update announcement
   DELETE /admin/announcements/<id>        – delete announcement
-  GET    /admin/announcements/active      – active announcements for students
+  GET    /admin/announcements/active      – active announcements
 """
 
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required, get_jwt
 from extensions import db
-from models import Student, DayOrderOverride, TimetableEntry, Announcement
+from models import DayOrderOverride, TimetableEntry, Announcement
 from datetime import date as date_type
 import datetime
 
@@ -34,64 +31,18 @@ admin_bp = Blueprint("admin", __name__)
 
 # ── Auth guard ────────────────────────────────────────────────────────────────
 
-def require_admin():
-    claims = get_jwt()
-    if claims.get("role") != "admin":
-        return jsonify({"error": "Admin access required"}), 403
-    return None, None
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  STUDENTS
-# ══════════════════════════════════════════════════════════════════════════════
-
-@admin_bp.route("/students", methods=["GET"])
-@jwt_required()
-def list_students():
-    err, code = require_admin()
-    if err: return err, code
-    students = Student.query.order_by(Student.department, Student.year, Student.name).all()
-    return jsonify([{
-        "id": s.id,
-        "name": s.name,
-        "register_number": s.register_number,
-        "department": s.department,
-        "year": s.year,
-    } for s in students]), 200
-
-
-@admin_bp.route("/students/<int:student_id>", methods=["DELETE"])
-@jwt_required()
-def delete_student(student_id):
-    err, code = require_admin()
-    if err: return err, code
-    student = db.session.get(Student, student_id)
-    if not student:
-        return jsonify({"error": "Student not found"}), 404
-    db.session.delete(student)
-    db.session.commit()
-    return jsonify({"message": "Student deleted"}), 200
-
-
 # ══════════════════════════════════════════════════════════════════════════════
 #  DAY ORDER OVERRIDES
 # ══════════════════════════════════════════════════════════════════════════════
 
 @admin_bp.route("/day-orders", methods=["GET"])
-@jwt_required()
 def list_day_orders():
-    err, code = require_admin()
-    if err: return err, code
     overrides = DayOrderOverride.query.order_by(DayOrderOverride.date).all()
     return jsonify([o.to_dict() for o in overrides]), 200
 
 
 @admin_bp.route("/day-orders", methods=["POST"])
-@jwt_required()
 def upsert_day_order():
-    err, code = require_admin()
-    if err: return err, code
-
     data = request.get_json() or {}
     date_str  = data.get("date", "").strip()
     day_order = data.get("day_order")
@@ -125,10 +76,7 @@ def upsert_day_order():
 
 
 @admin_bp.route("/day-orders/<int:override_id>", methods=["DELETE"])
-@jwt_required()
 def delete_day_order(override_id):
-    err, code = require_admin()
-    if err: return err, code
     override = db.session.get(DayOrderOverride, override_id)
     if not override:
         return jsonify({"error": "Override not found"}), 404
@@ -142,21 +90,14 @@ def delete_day_order(override_id):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @admin_bp.route("/timetable/departments", methods=["GET"])
-@jwt_required()
 def list_departments():
     """Return sorted list of distinct departments that have timetable entries."""
-    err, code = require_admin()
-    if err: return err, code
     rows = db.session.query(TimetableEntry.department).distinct().order_by(TimetableEntry.department).all()
     return jsonify([r[0] for r in rows]), 200
 
 
 @admin_bp.route("/timetable", methods=["GET"])
-@jwt_required()
 def get_timetable():
-    err, code = require_admin()
-    if err: return err, code
-
     dept      = request.args.get("department")
     year      = request.args.get("year")
     day_order = request.args.get("day_order")
@@ -176,11 +117,7 @@ def get_timetable():
 
 
 @admin_bp.route("/timetable", methods=["POST"])
-@jwt_required()
 def upsert_timetable():
-    err, code = require_admin()
-    if err: return err, code
-
     data       = request.get_json() or {}
     department = (data.get("department") or "").strip()
     year       = data.get("year")
@@ -217,10 +154,7 @@ def upsert_timetable():
 
 
 @admin_bp.route("/timetable/<int:entry_id>", methods=["DELETE"])
-@jwt_required()
 def delete_timetable_entry(entry_id):
-    err, code = require_admin()
-    if err: return err, code
     entry = db.session.get(TimetableEntry, entry_id)
     if not entry:
         return jsonify({"error": "Entry not found"}), 404
@@ -230,11 +164,8 @@ def delete_timetable_entry(entry_id):
 
 
 @admin_bp.route("/timetable/department/<path:dept_name>", methods=["DELETE"])
-@jwt_required()
 def delete_department(dept_name):
     """Delete ALL timetable entries for a department."""
-    err, code = require_admin()
-    if err: return err, code
     deleted = TimetableEntry.query.filter_by(department=dept_name).delete()
     db.session.commit()
     return jsonify({"message": f"Deleted {deleted} entries for {dept_name}"}), 200
@@ -245,7 +176,6 @@ def delete_department(dept_name):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @admin_bp.route("/announcements/active", methods=["GET"])
-@jwt_required()
 def active_announcements():
     items = Announcement.query.filter_by(active=True).order_by(
         Announcement.created_at.desc()
@@ -254,20 +184,13 @@ def active_announcements():
 
 
 @admin_bp.route("/announcements", methods=["GET"])
-@jwt_required()
 def list_announcements():
-    err, code = require_admin()
-    if err: return err, code
     items = Announcement.query.order_by(Announcement.created_at.desc()).all()
     return jsonify([a.to_dict() for a in items]), 200
 
 
 @admin_bp.route("/announcements", methods=["POST"])
-@jwt_required()
 def create_announcement():
-    err, code = require_admin()
-    if err: return err, code
-
     data   = request.get_json() or {}
     title  = (data.get("title") or "").strip()
     body   = (data.get("body") or "").strip()
@@ -283,11 +206,7 @@ def create_announcement():
 
 
 @admin_bp.route("/announcements/<int:ann_id>", methods=["PUT"])
-@jwt_required()
 def update_announcement(ann_id):
-    err, code = require_admin()
-    if err: return err, code
-
     ann = db.session.get(Announcement, ann_id)
     if not ann:
         return jsonify({"error": "Announcement not found"}), 404
@@ -303,11 +222,7 @@ def update_announcement(ann_id):
 
 
 @admin_bp.route("/announcements/<int:ann_id>", methods=["DELETE"])
-@jwt_required()
 def delete_announcement(ann_id):
-    err, code = require_admin()
-    if err: return err, code
-
     ann = db.session.get(Announcement, ann_id)
     if not ann:
         return jsonify({"error": "Announcement not found"}), 404

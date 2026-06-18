@@ -2,31 +2,6 @@ from extensions import db
 from datetime import datetime
 
 
-class Student(db.Model):
-    __tablename__ = "students"
-
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    register_number = db.Column(db.String(50), unique=True, nullable=False)
-    department = db.Column(db.String(100), nullable=False)
-    year = db.Column(db.Integer, nullable=False)
-    password_hash = db.Column(db.String(255), nullable=False)
-
-    def __repr__(self):
-        return f"<Student {self.register_number}>"
-
-
-class Admin(db.Model):
-    __tablename__ = "admins"
-
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(100), unique=True, nullable=False)
-    password_hash = db.Column(db.String(255), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    def __repr__(self):
-        return f"<Admin {self.username}>"
-
 
 class DayOrderOverride(db.Model):
     __tablename__ = "day_order_overrides"
