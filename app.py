@@ -11,11 +11,15 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
 import google.generativeai as genai
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from config     import config_map
 from extensions import db, limiter
 from models     import DayOrderOverride, TimetableEntry, Announcement
 from admin      import admin_bp
+
+DB_AVAILABLE = False
 
 
 # ══════════════════════════════════════════════════════════════
@@ -23,6 +27,7 @@ from admin      import admin_bp
 # ══════════════════════════════════════════════════════════════
 
 def create_app(env=None):
+    global DB_AVAILABLE
     load_dotenv()
     env = env or os.getenv("FLASK_ENV", "default")
     app = Flask(__name__)
@@ -37,6 +42,14 @@ def create_app(env=None):
 
     app.config["SQLALCHEMY_DATABASE_URI"]        = db_url
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"]      = {
+        "pool_pre_ping": True,
+        "pool_recycle": 300,
+        "connect_args": {
+            "connect_timeout": 10,
+            "sslmode": "require",
+        },
+    }
     app.config["GEMINI_KEYS"]                    = os.getenv("GEMINI_KEYS")
 
     logging.basicConfig(
@@ -57,12 +70,40 @@ def create_app(env=None):
     app.register_blueprint(admin_bp, url_prefix="/admin")
 
     with app.app_context():
-        db.create_all()
-        app.logger.info("Database tables verified / created.")
+        try:
+            db.create_all()
+            DB_AVAILABLE = True
+            app.logger.info("Database tables verified / created.")
+        except SQLAlchemyError as e:
+            DB_AVAILABLE = False
+            app.logger.error("Database connection failed during startup: %s", e)
 
+    _register_health_routes(app)
     _register_chat_route(app)
     _register_departments_route(app)
     return app
+
+
+def _register_health_routes(app):
+    @app.route("/", methods=["GET"])
+    def root():
+        return jsonify({"status": "ok", "service": "Campus AI backend"}), 200
+
+    @app.route("/health", methods=["GET"])
+    def health():
+        return jsonify({"status": "ok", "database": "connected" if DB_AVAILABLE else "unavailable"}), 200
+
+    @app.route("/db-health", methods=["GET"])
+    def db_health():
+        global DB_AVAILABLE
+        try:
+            db.session.execute(text("SELECT 1"))
+            DB_AVAILABLE = True
+            return jsonify({"database": "connected"}), 200
+        except Exception as e:
+            DB_AVAILABLE = False
+            app.logger.error("Database health check failed: %s", e)
+            return jsonify({"database": "unavailable", "error": str(e)}), 503
 
 
 # ══════════════════════════════════════════════════════════════
@@ -293,9 +334,12 @@ def _rr_timetable():
 #      falls back to rr.txt ONLY for B.Sc AI students
 def _timetable_str(department, year, day_order):
     # Try DB first, filtered strictly by the student's own department
-    rows = TimetableEntry.query.filter_by(
-        department=department, year=year, day_order=day_order
-    ).order_by(TimetableEntry.period).all()
+    try:
+        rows = TimetableEntry.query.filter_by(
+            department=department, year=year, day_order=day_order
+        ).order_by(TimetableEntry.period).all()
+    except SQLAlchemyError:
+        rows = []
 
     if rows:
         lines = [f"{department} Year {year} — Day Order {ROMAN.get(day_order, day_order)} timetable:"]
